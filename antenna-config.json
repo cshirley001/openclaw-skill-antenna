@@ -9,6 +9,10 @@
   "log_path": "antenna.log",
   "log_max_size_bytes": 10485760,
   "log_verbose": false,
+  "rate_limit": {
+    "per_peer_per_minute": 10,
+    "global_per_minute": 30
+  },
   "mcs_enabled": false,
   "mcs_model": "sonnet",
   "allowed_inbound_sessions": [

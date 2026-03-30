@@ -2,6 +2,25 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.6] — 2026-03-30
+
+### Summary
+Rate limiting: per-peer and global inbound message throttling to prevent relay agent saturation and API budget burn.
+
+### Added
+- **Per-peer rate limiting** (`rate_limit.per_peer_per_minute` in config, default 10): Rejects messages from a peer exceeding the limit within a 60-second sliding window.
+- **Global rate limiting** (`rate_limit.global_per_minute` in config, default 30): Rejects messages when total inbound volume across all peers exceeds the limit.
+- **Rate limit state file** (`antenna-ratelimit.json`): Lightweight per-peer timestamp tracking, auto-pruned on each invocation. Excluded from git.
+- **Test A.9**: Validates burst rejection — temporarily sets limit to 2/min, sends 3 messages, confirms 3rd is rejected.
+
+### Changed
+- `scripts/antenna-relay.sh` — rate limit check runs after peer validation, before message length/session checks. On limit hit: `RELAY_REJECT` with descriptive reason, logged.
+- `antenna-config.json` — new `rate_limit` block.
+- `.gitignore` — excludes `antenna-ratelimit.json`.
+
+### Security
+Addresses Red Team finding #4 (DoS via relay agent saturation) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+
 ## [1.0.5] — 2026-03-30
 
 ### Summary

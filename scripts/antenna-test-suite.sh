@@ -680,6 +680,47 @@ Humanized test.
   fi
   tests_run=$((tests_run + 1))
 
+  # ── A.9: Rate limiting — reject after burst ──
+  # Temporarily set per_peer_per_minute to 2 in config, send 3 messages, expect 3rd rejected
+  local orig_config rate_env rate_result rate_status
+  orig_config=$(cat "$SKILL_DIR/antenna-config.json")
+
+  # Patch config to limit 2/min for testing
+  jq '.rate_limit.per_peer_per_minute = 2' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
+    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+
+  # Clear rate limit state
+  echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
+
+  rate_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:antenna:test
+timestamp: 2026-01-01T00:00:00Z
+
+Rate limit test.
+[/ANTENNA_RELAY]"
+
+  # Messages 1 and 2 should pass
+  echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
+  echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
+
+  # Message 3 should be rate limited
+  rate_result=$(echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  rate_status=$(echo "$rate_result" | jq -r '.status // "none"' 2>/dev/null)
+  local rate_reason
+  rate_reason=$(echo "$rate_result" | jq -r '.reason // ""' 2>/dev/null)
+
+  # Restore original config and clean up
+  echo "$orig_config" > "$SKILL_DIR/antenna-config.json"
+  rm -f "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
+
+  if [[ "$rate_status" == "rejected" ]] && echo "$rate_reason" | grep -qi "rate.limit"; then
+    pass "A.9" "Rate limiting rejects after burst (2/min limit, 3rd message rejected)"
+  else
+    fail "A.9" "Rate limiting burst rejection" "Expected rejected/rate_limited, got status=$rate_status reason=$rate_reason"
+  fi
+  tests_run=$((tests_run + 1))
+
   TIER_A_TOTAL=$tests_run
 }
 

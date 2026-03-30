@@ -10,3 +10,4 @@ test-results/
 # OS junk
 .DS_Store
 Thumbs.db
+antenna-ratelimit.json
