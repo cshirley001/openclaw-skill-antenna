@@ -24,14 +24,22 @@ usage() {
 Antenna — Inter-Host OpenClaw Messaging
 
 Usage:
+  antenna setup                              First-run setup wizard
+  antenna setup --host-id <id> ...           Non-interactive setup (see --help)
+
   antenna send <peer> [options] <message>    Send a message to a peer
   antenna send <peer> [options] --stdin      Send message from stdin
   antenna msg <peer> [message]               Quick send (plain host mode by default)
 
   antenna peers list                         List known peers
-  antenna peers add <id> --url <url> --token-file <path> [--display-name <name>]
+  antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--display-name <name>]
   antenna peers remove <id>
   antenna peers test <id>                    Test connectivity to a peer
+  antenna peers generate-secret <id>         Generate a per-peer auth secret
+  antenna peers exchange <id>                Guided secret exchange with a peer
+  antenna peers exchange <id> --import <file>     Quick import from file
+  antenna peers exchange <id> --import-value <hex> Quick import from value
+  antenna peers exchange <id> --export       Print your identity secret for copy
 
   antenna config show                        Show current configuration
   antenna config set <key> <value>           Update a config value
@@ -71,6 +79,10 @@ EOF
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_setup() {
+  bash "$SCRIPTS_DIR/antenna-setup.sh" "$@"
+}
 
 cmd_send() {
   bash "$SCRIPTS_DIR/antenna-send.sh" "$@"
@@ -175,14 +187,15 @@ cmd_peers() {
       ;;
 
     add)
-      local id="" url="" token_file="" display_name=""
-      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path>}"
+      local id="" url="" token_file="" display_name="" peer_secret_file=""
+      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>]}"
       shift
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --url)          url="$2"; shift 2 ;;
-          --token-file)   token_file="$2"; shift 2 ;;
-          --display-name) display_name="$2"; shift 2 ;;
+          --url)              url="$2"; shift 2 ;;
+          --token-file)       token_file="$2"; shift 2 ;;
+          --peer-secret-file) peer_secret_file="$2"; shift 2 ;;
+          --display-name)     display_name="$2"; shift 2 ;;
           *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
       done
@@ -191,10 +204,45 @@ cmd_peers() {
       fi
       local tmp
       tmp=$(mktemp)
-      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" \
-        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end)}' \
+      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" --arg psf "$peer_secret_file" \
+        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end), peer_secret_file: (if $psf == "" then null else $psf end)}' \
         "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
       echo "Added peer: $id ($url)"
+      if [[ -n "$peer_secret_file" ]]; then
+        echo "Per-peer secret: $peer_secret_file"
+      fi
+      ;;
+
+    exchange)
+      bash "$SCRIPTS_DIR/antenna-exchange.sh" "$@"
+      ;;
+
+    generate-secret)
+      local target_id="${1:-}"
+      local secret_dir="$SKILL_DIR/secrets"
+      mkdir -p "$secret_dir"
+
+      local secret
+      secret=$(openssl rand -hex 32)
+
+      if [[ -n "$target_id" ]]; then
+        local secret_path="$secret_dir/antenna-peer-${target_id}.secret"
+        echo -n "$secret" > "$secret_path"
+        chmod 600 "$secret_path"
+        echo "Generated per-peer secret for: $target_id"
+        echo "  File: $secret_path"
+        echo "  Secret: $secret"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Copy this secret file to the peer host"
+        echo "  2. On THIS host: ensure antenna-peers.json has peer_secret_file for $target_id"
+        echo "  3. On PEER host: add YOUR peer entry with peer_secret_file pointing to this secret"
+      else
+        echo "Generated secret: $secret"
+        echo ""
+        echo "Usage: antenna peers generate-secret <peer-id>"
+        echo "  This creates secrets/antenna-peer-<id>.secret and prints setup instructions."
+      fi
       ;;
 
     remove)
@@ -399,6 +447,33 @@ cmd_status() {
       echo "     Fix: chmod 600 $tf"
       warnings=$((warnings + 1))
     fi
+
+    # Check per-peer secret file
+    local psf
+    psf=$(jq -r --arg p "$peer_id" '.[$p].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null)
+    if [[ -z "$psf" ]]; then
+      echo "  ⚠  $peer_id: no per-peer secret configured (sender identity unverified)"
+      warnings=$((warnings + 1))
+    else
+      # Resolve relative paths
+      if [[ "$psf" != /* ]]; then
+        psf="$SKILL_DIR/$psf"
+      fi
+      if [[ ! -f "$psf" ]]; then
+        echo "  ⚠  $peer_id: peer secret file missing ($psf)"
+        warnings=$((warnings + 1))
+      else
+        local psf_perms
+        psf_perms=$(stat -c '%a' "$psf" 2>/dev/null || stat -f '%Lp' "$psf" 2>/dev/null || echo "unknown")
+        if [[ "$psf_perms" == "600" || "$psf_perms" == "400" ]]; then
+          echo "  ✓  $peer_id: peer secret OK ($psf_perms)"
+        else
+          echo "  ⚠  $peer_id: peer secret too permissive ($psf_perms) — should be 600"
+          echo "     Fix: chmod 600 $psf"
+          warnings=$((warnings + 1))
+        fi
+      fi
+    fi
   done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
 
   # Check config file itself
@@ -435,6 +510,7 @@ COMMAND="${1:-help}"
 shift || true
 
 case "$COMMAND" in
+  setup)    cmd_setup "$@" ;;
   send)     cmd_send "$@" ;;
   msg)      cmd_msg "$@" ;;
   peers)    cmd_peers "$@" ;;

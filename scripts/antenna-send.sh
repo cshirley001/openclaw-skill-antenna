@@ -156,12 +156,32 @@ fi
 REPLY_TO="${REPLY_TO_OVERRIDE:-${SELF_URL:+${SELF_URL}/hooks/agent}}"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# ── Load per-peer auth secret (if configured) ──────────────────────────────
+# The SELF peer's secret is what we include in outbound messages so the
+# recipient can verify our identity.
+SELF_SECRET=""
+SELF_SECRET_FILE=$(jq -r --arg id "$SELF_ID" '.[$id].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+if [[ -n "$SELF_SECRET_FILE" ]]; then
+  # Resolve relative paths against skill dir
+  if [[ "$SELF_SECRET_FILE" != /* ]]; then
+    SELF_SECRET_FILE="$SKILL_DIR/$SELF_SECRET_FILE"
+  fi
+  if [[ -f "$SELF_SECRET_FILE" ]]; then
+    SELF_SECRET=$(tr -d '[:space:]' < "$SELF_SECRET_FILE")
+  fi
+fi
+
 # ── Build envelope ──────────────────────────────────────────────────────────
 
 ENVELOPE="[ANTENNA_RELAY]
 from: ${SELF_ID}
 target_session: ${TARGET_SESSION}
 timestamp: ${TIMESTAMP}"
+
+if [[ -n "$SELF_SECRET" ]]; then
+  ENVELOPE="${ENVELOPE}
+auth: ${SELF_SECRET}"
+fi
 
 if [[ -n "$USER_NAME" ]]; then
   ENVELOPE="${ENVELOPE}

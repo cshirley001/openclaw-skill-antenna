@@ -2,6 +2,23 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.8] — 2026-03-30
+
+### Summary
+Onboarding UX fixes from first real "meat test" (human walkthrough on clean-slate BETTYXX).
+
+### Fixed
+- **`antenna setup`** now seeds the host's own ID into `allowed_inbound_peers` and `allowed_outbound_peers` — prevents self-loopback smoke tests from failing with "not in allowed_outbound_peers" immediately after setup.
+- **`antenna peers exchange` wizard** reordered secret-sharing options: **paste/import-value** is now Option A (easiest, always works); **pull from remote** is Option B (note that the *other* host's operator can grab the secret); **scp push** is now Option C (only shown when peer URL is known); **manual secure channel** is Option D. Previously SCP was listed first, which assumes bidirectional SSH access that doesn't always exist.
+
+### Changed
+- `scripts/antenna-setup.sh` — `allowed_inbound_peers` and `allowed_outbound_peers` now default to `[$host_id]` instead of `[]`.
+- `scripts/antenna-exchange.sh` — reordered guided wizard Step 2 options; added "operator can pull" suggestion.
+
+### Tested
+- Clean-slate BETTYXX onboarding: `antenna setup` → `peers add` → `peers exchange` → `antenna msg` — full round-trip confirmed.
+- Tier A: 11/11 on both BETTYXIX and BETTYXX after changes.
+
 ## [1.0.7] — 2026-03-30
 
 ### Summary

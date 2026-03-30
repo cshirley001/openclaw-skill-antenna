@@ -542,14 +542,47 @@ run_tier_a() {
 
   local tests_run=0
 
-  # ── A.1: Valid envelope → relay ok ──
-  local valid_envelope="[ANTENNA_RELAY]
-from: ${SELF_PEER}
-target_session: agent:antenna:test
-timestamp: 2026-01-01T00:00:00Z
+  # Load self-peer's auth secret for inclusion in valid test envelopes
+  local SELF_SECRET="" SELF_SECRET_FILE=""
+  SELF_SECRET_FILE=$(jq -r --arg id "$SELF_PEER" '.[$id].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+  if [[ -n "$SELF_SECRET_FILE" ]]; then
+    if [[ "$SELF_SECRET_FILE" != /* ]]; then
+      SELF_SECRET_FILE="$SKILL_DIR/$SELF_SECRET_FILE"
+    fi
+    if [[ -f "$SELF_SECRET_FILE" ]]; then
+      SELF_SECRET=$(tr -d '[:space:]' < "$SELF_SECRET_FILE")
+    fi
+  fi
+  local AUTH_LINE=""
+  if [[ -n "$SELF_SECRET" ]]; then
+    AUTH_LINE="auth: ${SELF_SECRET}"
+  fi
 
-Hello, this is a test message.
+  # Helper: build a valid envelope with auth header included when available
+  build_envelope() {
+    local from="$1" session="$2" timestamp="$3" body="$4" extra_headers="${5:-}"
+    local env="[ANTENNA_RELAY]
+from: ${from}
+target_session: ${session}
+timestamp: ${timestamp}"
+    if [[ -n "$AUTH_LINE" && "$from" == "$SELF_PEER" ]]; then
+      env="${env}
+${AUTH_LINE}"
+    fi
+    if [[ -n "$extra_headers" ]]; then
+      env="${env}
+${extra_headers}"
+    fi
+    env="${env}
+
+${body}
 [/ANTENNA_RELAY]"
+    echo "$env"
+  }
+
+  # ── A.1: Valid envelope → relay ok ──
+  local valid_envelope
+  valid_envelope=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Hello, this is a test message.")
 
   local result action status session_key
   result=$(echo "$valid_envelope" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
@@ -608,13 +641,8 @@ Test body
   tests_run=$((tests_run + 1))
 
   # ── A.5: "main" → agent:<local>:main ──
-  local main_env="[ANTENNA_RELAY]
-from: ${SELF_PEER}
-target_session: main
-timestamp: 2026-01-01T00:00:00Z
-
-Test default session.
-[/ANTENNA_RELAY]"
+  local main_env
+  main_env=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "Test default session.")
   result=$(echo "$main_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
   if [[ "$session_key" == "agent:${LOCAL_AGENT}:main" ]]; then
@@ -629,13 +657,8 @@ Test default session.
   max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null)
   local big_body
   big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
-  local oversize="[ANTENNA_RELAY]
-from: ${SELF_PEER}
-target_session: main
-timestamp: 2026-01-01T00:00:00Z
-
-${big_body}
-[/ANTENNA_RELAY]"
+  local oversize
+  oversize=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "$big_body")
   result=$(echo "$oversize" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
   if [[ "$action" == "reject" ]]; then
@@ -662,14 +685,8 @@ Missing close marker"
   tests_run=$((tests_run + 1))
 
   # ── A.8: User header in delivery message ──
-  local user_env="[ANTENNA_RELAY]
-from: ${SELF_PEER}
-target_session: agent:antenna:test
-timestamp: 2026-01-01T00:00:00Z
-user: TestUser
-
-Humanized test.
-[/ANTENNA_RELAY]"
+  local user_env
+  user_env=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Humanized test." "user: TestUser")
   result=$(echo "$user_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   local delivery_msg
   delivery_msg=$(echo "$result" | jq -r '.message // ""' 2>/dev/null)
@@ -692,13 +709,7 @@ Humanized test.
   # Clear rate limit state
   echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
 
-  rate_env="[ANTENNA_RELAY]
-from: ${SELF_PEER}
-target_session: agent:antenna:test
-timestamp: 2026-01-01T00:00:00Z
-
-Rate limit test.
-[/ANTENNA_RELAY]"
+  rate_env=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Rate limit test.")
 
   # Messages 1 and 2 should pass
   echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
@@ -718,6 +729,53 @@ Rate limit test.
     pass "A.9" "Rate limiting rejects after burst (2/min limit, 3rd message rejected)"
   else
     fail "A.9" "Rate limiting burst rejection" "Expected rejected/rate_limited, got status=$rate_status reason=$rate_reason"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.10: Missing auth header → rejected (when peer secret is configured) ──
+  if [[ -n "$SELF_SECRET" ]]; then
+    local no_auth_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:antenna:test
+timestamp: 2026-01-01T00:00:00Z
+
+No auth header test.
+[/ANTENNA_RELAY]"
+    local no_auth_result no_auth_action no_auth_reason
+    no_auth_result=$(echo "$no_auth_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+    no_auth_action=$(echo "$no_auth_result" | jq -r '.action // "none"' 2>/dev/null)
+    no_auth_reason=$(echo "$no_auth_result" | jq -r '.reason // ""' 2>/dev/null)
+    if [[ "$no_auth_action" == "reject" ]] && echo "$no_auth_reason" | grep -qi "auth"; then
+      pass "A.10" "Missing auth header → rejected (peer secret configured)"
+    else
+      fail "A.10" "Missing auth → rejected" "Got action=$no_auth_action reason=$no_auth_reason"
+    fi
+  else
+    skip "A.10" "Missing auth header → rejected" "No peer secret configured for self-peer" ""
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.11: Wrong auth secret → rejected ──
+  if [[ -n "$SELF_SECRET" ]]; then
+    local bad_auth_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:antenna:test
+timestamp: 2026-01-01T00:00:00Z
+auth: deadbeef0000000000000000000000000000000000000000000000000000cafe
+
+Wrong secret test.
+[/ANTENNA_RELAY]"
+    local bad_auth_result bad_auth_action bad_auth_reason
+    bad_auth_result=$(echo "$bad_auth_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+    bad_auth_action=$(echo "$bad_auth_result" | jq -r '.action // "none"' 2>/dev/null)
+    bad_auth_reason=$(echo "$bad_auth_result" | jq -r '.reason // ""' 2>/dev/null)
+    if [[ "$bad_auth_action" == "reject" ]] && echo "$bad_auth_reason" | grep -qi "auth\|secret"; then
+      pass "A.11" "Wrong auth secret → rejected"
+    else
+      fail "A.11" "Wrong auth → rejected" "Got action=$bad_auth_action reason=$bad_auth_reason"
+    fi
+  else
+    skip "A.11" "Wrong auth secret → rejected" "No peer secret configured for self-peer" ""
   fi
   tests_run=$((tests_run + 1))
 

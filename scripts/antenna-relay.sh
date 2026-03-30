@@ -194,6 +194,50 @@ if [[ "$PEER_EXISTS" != "true" ]]; then
   exit 0
 fi
 
+# ── Per-peer authentication ──────────────────────────────────────────────────
+# If the claimed sender has a peer_secret_file configured, we REQUIRE a matching
+# auth: header. This binds identity to a shared secret — the from: field alone
+# is no longer sufficient.
+
+AUTH_HEADER=$(get_header "auth")
+AUTH_HEADER=$(sanitize_log_value "$AUTH_HEADER" 128)
+
+EXPECTED_SECRET_FILE=$(jq -r --arg from "$FROM" '.[$from].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
+  # Resolve relative paths against skill dir
+  if [[ "$EXPECTED_SECRET_FILE" != /* ]]; then
+    EXPECTED_SECRET_FILE="$SKILL_DIR/$EXPECTED_SECRET_FILE"
+  fi
+
+  if [[ ! -f "$EXPECTED_SECRET_FILE" ]]; then
+    # Secret file configured but missing — fail closed
+    json_reject "Peer auth configured but secret file missing for: $FROM" "$FROM"
+    log_entry "INBOUND  | from:$FROM | status:REJECTED (peer secret file missing)"
+    exit 0
+  fi
+
+  EXPECTED_SECRET=$(tr -d '[:space:]' < "$EXPECTED_SECRET_FILE")
+
+  if [[ -z "$AUTH_HEADER" ]]; then
+    json_reject "Peer auth required but no auth header provided (from: $FROM)" "$FROM"
+    log_entry "INBOUND  | from:$FROM | status:REJECTED (missing auth header)"
+    exit 0
+  fi
+
+  if [[ "$AUTH_HEADER" != "$EXPECTED_SECRET" ]]; then
+    json_reject "Peer auth failed: invalid secret (from: $FROM)" "$FROM"
+    log_entry "INBOUND  | from:$FROM | status:REJECTED (invalid peer secret)"
+    exit 0
+  fi
+
+  log_entry "INBOUND  | from:$FROM | peer_auth:verified"
+else
+  # No per-peer secret configured — warn but allow (backward compat / migration)
+  if [[ -n "$AUTH_HEADER" ]]; then
+    log_entry "INBOUND  | from:$FROM | peer_auth:ignored (no secret configured, auth header present)"
+  fi
+fi
+
 # ── Rate limiting ────────────────────────────────────────────────────────────
 
 RATE_LIMIT_FILE="$SKILL_DIR/antenna-ratelimit.json"
