@@ -707,8 +707,8 @@ test-results/<timestamp>/
 | `openrouter/*` | `openrouter.ai/api/v1` | ✅ Supported |
 | `nvidia/*` | `integrate.api.nvidia.com/v1` | ✅ Supported |
 | `ollama/*` | `127.0.0.1:11434/v1` | ✅ Supported |
-| `anthropic/*` | — | ⏳ Planned |
-| `google/*` | — | ⏳ Planned |
+| `anthropic/*` | `api.anthropic.com/v1` | ✅ Supported (v1.0.4) |
+| `google/*` | `generativelanguage.googleapis.com/v1beta` | ✅ Supported (v1.0.4) |
 
 ### CLI
 
@@ -739,6 +739,120 @@ antenna test-suite [options]
 | 0.3 | 2026-03-28 | Stabilization: plain relay mode as default, `antenna msg` no longer auto-injects human sender identity, stable tests confirmed |
 | 1.0.0 | 2026-03-29 | v1.0 baseline release. Fixed `antenna-health.sh` and `antenna-peers.sh` (stale peer registry format). Removed stray `user_name` from config. Synced all docs to current architecture. Added README.md and CHANGELOG.md. Initialized git version control. |
 | 1.0.2 | 2026-03-30 | Three-tier test suite (§18): Tier A script validation, Tier B/C direct model API evaluation, multi-model comparison, structured reports, multiple output formats. |
+| 1.0.3 | 2026-03-30 | Enriched test messages with forensic metadata (model, host, timestamp, tier, purpose). |
+| 1.0.4 | 2026-03-30 | Native Anthropic Messages API + Google Gemini generateContent API support in test suite. 7 provider families. |
+
+---
+
+## 19. Roadmap — Future Features
+
+### 19.1 Encryption (end-to-end, instance-to-instance)
+
+**Status:** Proposed
+
+**Problem:** Current relay traffic is encrypted in transit via Tailscale (WireGuard), but messages are plaintext at rest in logs, in the webhook payload between gateway hops, and in session history. If Antenna expands beyond a private two-host tailnet — or if logs/backups are stored on shared infrastructure — message confidentiality depends entirely on transport and host security.
+
+**Questions to resolve:**
+- **Scope:** Encrypt only the message body, or the full envelope (including sender/peer metadata)?
+- **Key management:** Pre-shared symmetric keys per peer pair? Asymmetric (each installation generates a keypair, peers exchange public keys during onboarding)? Or defer to Tailscale's existing WireGuard encryption and treat this as defense-in-depth only?
+- **Key exchange:** Manual (copy key into `antenna-peers.json`) vs. automated (an `antenna pair` handshake that exchanges keys over the already-authenticated Tailscale channel)?
+- **Implementation:** GPG/age for simplicity? libsodium via a small helper script? Native OpenSSL?
+- **Log impact:** If messages are encrypted, `antenna.log` metadata-only entries stay useful, but `--verbose` log mode would show ciphertext. Acceptable?
+- **Performance:** Encryption/decryption adds milliseconds, not a concern. Key rotation cadence?
+
+**Recommendation (initial):** Start with **asymmetric keypairs per installation** (generated during setup, public key shared in `antenna-peers.json`). Encrypt only the message body within the envelope — metadata (sender, timestamp, session target) stays cleartext for routing/logging. Use `age` (modern, simple, no GPG complexity). This gives meaningful defense-in-depth on top of Tailscale without complicating peer management.
+
+### 19.2 Invite Message (peer onboarding)
+
+**Status:** Proposed
+
+**Problem:** Adding a new peer currently requires manual coordination: share Tailscale access, exchange hook tokens, edit config files on both sides. There's no standard way to say "hey, want to connect your OpenClaw to mine?"
+
+**Proposed feature:** `antenna invite` generates a prefab message suitable for copy-pasting into email, text, chat, etc. The message includes:
+- Brief explanation of what Antenna is and does
+- Link to the GitHub repo: `https://github.com/cshirley001/openclaw-skill-antenna`
+- Link to the ClawHub skill page (once published)
+- The sender's Tailscale hostname or IP (for peer config)
+- A one-time or time-limited pairing token (if encryption/pairing is implemented)
+- Setup instructions (install skill, edit config, add peer, test)
+
+**Example output:**
+```
+antenna invite --format text
+```
+```
+Hey! I'm using Antenna — a cross-host messaging skill for OpenClaw instances
+over Tailscale. It lets our AI assistants talk to each other directly,
+fire-and-forget, fully encrypted, with audit logging.
+
+Want to connect? Here's how:
+
+1. Install the skill:  clawhub install antenna
+   Or clone: https://github.com/cshirley001/openclaw-skill-antenna
+
+2. Add me as a peer in your antenna-peers.json:
+   "<my-host-id>": {
+     "url": "https://<my-tailscale-hostname>",
+     "token_file": "secrets/hooks-token",
+     "display_name": "<my-display-name>",
+     "self": false
+   }
+
+3. Send me your host ID and Tailscale hostname so I can add you back.
+
+4. Test: antenna msg <my-host-id> "Hello from the other side!"
+
+Repo:     https://github.com/cshirley001/openclaw-skill-antenna
+ClawHub:  https://clawhub.ai/<slug> (coming soon)
+```
+
+**Depends on:** Nothing (can ship standalone). Enhanced version depends on §19.1 (encryption) for including a pairing key in the invite.
+
+### 19.3 One-to-Many / Broadcast
+
+**Status:** Proposed (referenced in earlier design discussions)
+
+Send a single message to multiple peers simultaneously. Useful for announcements, status updates, or coordinated multi-host operations.
+
+```bash
+antenna msg --all "System update complete"
+antenna msg --group lab-hosts "New SOP published"
+```
+
+**Depends on:** Peer groups/clusters (§19.4).
+
+### 19.4 Peer Groups / Clusters
+
+**Status:** Proposed
+
+Named groups of peers in config for broadcast targeting, access control, and organizational clarity.
+
+```json
+{
+  "groups": {
+    "lab-hosts": ["bettyxix", "bettyxx", "labpi"],
+    "office": ["bettyxix", "bettyxx"]
+  }
+}
+```
+
+### 19.5 Malicious Content Scanning (MCS)
+
+**Status:** Designed, deferred (see §11)
+
+Subagent-based message scanning before delivery. Becomes important when untrusted or semi-trusted peers are added.
+
+### 19.6 TTL / Replay Protection
+
+**Status:** Deferred
+
+Enforce timestamp-based TTL on inbound messages to reject stale/replayed envelopes. Currently, timestamps are logged for audit but not enforced.
+
+### 19.7 Peer Auto-Discovery
+
+**Status:** Idea
+
+Automatically discover other Antenna-enabled OpenClaw instances on the same Tailscale network via Tailscale API or mDNS-style advertisement, rather than requiring manual peer registry edits.
 
 ---
 
