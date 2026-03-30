@@ -854,6 +854,135 @@ Enforce timestamp-based TTL on inbound messages to reject stale/replayed envelop
 
 Automatically discover other Antenna-enabled OpenClaw instances on the same Tailscale network via Tailscale API or mDNS-style advertisement, rather than requiring manual peer registry edits.
 
+### 19.8 Store-and-Forward / Offline Queue
+
+**Status:** Proposed
+
+**Problem:** If a peer is offline (e.g., BETTYXX laptop is closed), the send fails immediately. The sender has to know the peer's availability before messaging, which defeats the "fire-and-forget" promise.
+
+**Proposed behavior:**
+- On send failure (connection refused, timeout, HTTP 5xx), message is written to a local outbox file (`antenna-outbox.json`).
+- A periodic retry mechanism (cron job or heartbeat check) attempts redelivery at configurable intervals.
+- Messages expire after a configurable TTL (e.g., 24h) — stale messages are dropped, not delivered late without warning.
+- `antenna outbox` CLI command to list/flush/purge queued messages.
+- On successful delivery, outbox entry is removed and logged normally.
+
+**Design considerations:**
+- Outbox should be per-peer to allow selective flush.
+- Max outbox size per peer (e.g., 50 messages) to prevent unbounded growth.
+- Delivered-late messages should carry a `[DELAYED]` indicator so the recipient knows it's not real-time.
+
+### 19.9 Delivery Receipts / Acknowledgment
+
+**Status:** Proposed
+
+**Problem:** Current `"status": "delivered"` in the send response means the HTTP POST was accepted by the peer's webhook — not that the relay agent successfully processed and delivered the message to the target session. The sender has no confirmation of actual delivery.
+
+**Proposed behavior:**
+- After successful `sessions_send`, the relay agent sends a lightweight ack back to the sender via a new `/hooks/agent` callback (or a dedicated `/hooks/antenna-ack` endpoint).
+- Ack payload: `{ "type": "antenna_ack", "original_run_id": "...", "status": "relayed|failed", "timestamp": "..." }`
+- Sender logs receipt; optionally surfaces to sending agent/session.
+- Failures (relay reject, session timeout, script error) also generate a negative ack.
+
+**Design considerations:**
+- Ack is best-effort — if the return path is down, the ack is lost (not queued; that would recurse into store-and-forward).
+- Optional per-peer config: `"ack": true|false` — some peers may not want the overhead.
+- Interacts with §19.8 (store-and-forward): retried messages should also generate acks on eventual success.
+
+### 19.10 File / Attachment Transfer
+
+**Status:** Proposed
+
+**Problem:** Currently Antenna only carries text messages. Transferring files between hosts requires falling back to scp/rsync, which breaks the Antenna abstraction.
+
+**Proposed behavior:**
+```bash
+antenna send-file <peer> <path> [--session <target>] [--message "context"]
+```
+- Small files (under a configurable limit, e.g., 256KB) are base64-encoded into an extended envelope field `attachment`.
+- Envelope gains: `"attachment": { "filename": "...", "size": ..., "encoding": "base64", "data": "..." }`
+- Receiving relay script decodes and writes to a staging directory (e.g., `antenna-inbox/`).
+- Delivered message includes the file context and local path to the decoded file.
+- Large files: rejected at send time with a clear error ("file too large for Antenna; use scp/rsync").
+
+**Design considerations:**
+- Base64 inflates size ~33% — 256KB file becomes ~341KB in the envelope. Webhook payload limits may apply.
+- Security: receiving side should validate filename (no path traversal), enforce size limits, and optionally scan with MCS (§19.5).
+- Not a replacement for proper file sync — this is for configs, small scripts, patches, not datasets.
+
+### 19.11 Message Priority / Urgency Flags
+
+**Status:** Proposed
+
+**Problem:** All messages arrive with equal weight. The receiving agent has no way to distinguish "FYI when you get a chance" from "need you to act on this now."
+
+**Proposed behavior:**
+```bash
+antenna msg <peer> "Server needs restart" --priority urgent
+antenna msg <peer> "Updated the docs" --priority low
+```
+- Envelope gains: `"priority": "low|normal|urgent"` (default: `normal`).
+- Receiving relay formats the message differently based on priority (e.g., `🔴 URGENT` prefix for urgent).
+- Receiving agent can use priority to decide: interrupt current work vs. queue for next heartbeat.
+
+**Design considerations:**
+- Priority is advisory — the receiving agent decides how to handle it, not the sender.
+- Abuse potential from untrusted peers marking everything urgent → rate limiting (§19.13) helps.
+
+### 19.12 Conversation Threading
+
+**Status:** Proposed
+
+**Problem:** The `in_reply_to` field exists in the envelope spec (§4) but is not implemented. Multi-message exchanges between hosts lose conversational context.
+
+**Proposed behavior:**
+- Each sent message gets a unique `message_id` (UUID or similar), included in the envelope.
+- Reply messages include `in_reply_to: <original_message_id>`.
+- `antenna msg <peer> "response" --reply-to <message_id>`
+- Receiving relay includes threading metadata in the formatted message.
+- Agents can use threading to maintain context across a back-and-forth exchange.
+
+**Design considerations:**
+- Thread depth: flat (single `in_reply_to`) vs. chain (each reply references its parent). Start flat.
+- Storage: threading metadata is in the log already; no new persistence needed.
+- UI: how threading surfaces depends on the target session's capabilities.
+
+### 19.13 Inbound Rate Limiting
+
+**Status:** Proposed
+
+**Problem:** No throttle on inbound messages per peer. A chatty or compromised peer could flood the relay agent.
+
+**Proposed behavior:**
+- Config: `"rate_limit": { "per_peer_per_minute": 10, "global_per_minute": 30 }`
+- Messages exceeding the limit get `RELAY_REJECT` with reason `rate_limited`.
+- Sender receives HTTP 429 or a rejection payload.
+- Rate limit state held in memory (or a small state file) by the relay script.
+
+**Design considerations:**
+- Per-peer limits more useful than global — one noisy peer shouldn't block others.
+- Burst allowance? e.g., 10/min sustained but allow 5 in a burst.
+- Exempt list for trusted peers? Or trust all peers equally on the rate limit.
+
+### 19.14 Message History / Search
+
+**Status:** Proposed
+
+**Problem:** `antenna log` shows transaction metadata (timestamp, direction, peer, session, status, char count), but doesn't store or index message content. "What did Betty XX tell me about X last week?" requires searching session history, not antenna logs.
+
+**Proposed behavior:**
+```bash
+antenna search "config change" [--from bettyxx] [--since 7d] [--limit 10]
+```
+- Option A: Enrich `antenna.log` to include message body (or a truncated preview) in a searchable format. Simple but grows the log.
+- Option B: Separate message store (`antenna-messages.jsonl`) with full content, indexed alongside metadata. Log stays lean.
+- Either way: `antenna search` does plaintext grep/jq over the store.
+
+**Design considerations:**
+- Privacy: storing full message content locally is fine (it's your host), but interacts with encryption (§19.1) — do you store plaintext or ciphertext?
+- Rotation: message store needs the same rotation policy as logs.
+- This overlaps with SMAR/ChatBank ingest — messages that land in sessions are already ingestible. This feature is for messages that didn't make it to a session, or for searching the Antenna-specific view.
+
 ---
 
 *End of specification. Ready for review.*
