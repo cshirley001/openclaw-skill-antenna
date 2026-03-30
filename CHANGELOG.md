@@ -2,6 +2,34 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.2] — 2026-03-30
+
+### Summary
+Three-tier test suite with multi-model comparison, structured reports, and multiple output formats.
+
+### Added
+- `scripts/antenna-test-suite.sh` — decomposed tester with three evaluation tiers:
+  - **Tier A:** deterministic script validation (8 tests) — feeds envelopes into `antenna-relay.sh`, checks JSON output with `jq`. No model, no network.
+  - **Tier B:** model → exec tool call (4 tests) — direct provider API call, verifies model emits correct `exec` invocation referencing relay script with envelope.
+  - **Tier C:** model → sessions_send (4 tests) — simulated relay response, verifies model emits correct `sessions_send` with matching sessionKey and message.
+- Multi-model comparison via `--models "a,b,c"` (max 6) with side-by-side table, scores, timing, and verdict
+- `--report [dir]` saves structured output: `summary.md`, `summary.json`, `tier-a.json`, and per-model `tier-b-request.json`, `tier-b-response.json`, `tier-c-request.json`, `tier-c-response.json`
+- `--format terminal|markdown|json` output formats
+- `--verbose` inline request/response payloads
+- CLI wiring: `antenna test-suite [options]`
+- `.gitignore` updated to exclude `test-results/`
+
+### Supported providers (Tier B/C)
+- OpenAI (`openai/*`)
+- OpenAI Codex (`openai-codex/*`)
+- OpenRouter (`openrouter/*`)
+- Nvidia NIM (`nvidia/*`)
+- Ollama (`ollama/*` — local models)
+- Anthropic and Google: planned but not yet adapted
+
+### Note
+The existing `antenna test` self-loop integration tester remains available as a smoke/end-to-end test. The new `antenna test-suite` is the primary model compatibility evaluator.
+
 ## [1.0.1] — 2026-03-29
 
 ### Summary

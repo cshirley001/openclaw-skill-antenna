@@ -1,6 +1,6 @@
 ---
 name: antenna
-version: 1.0.1
+version: 1.0.2
 description: >
   Inter-host OpenClaw session messaging over Tailscale using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
@@ -153,7 +153,32 @@ antenna config show                        # Show current config
 antenna config set <key> <value>           # Update a config value
 antenna log [--tail <n>]                   # View transaction log
 antenna status                             # Overall status summary
+
+# Testing
+antenna test <model>                       # Self-loop integration test (end-to-end smoke)
+antenna test-suite --tier A                # Script validation only (no model, no network)
+antenna test-suite --model <m>             # Full three-tier suite against a single model
+antenna test-suite --models "<m1>,<m2>"    # Compare models side-by-side (max 6)
+antenna test-suite --report                # Save structured report to test-results/
+antenna test-suite --format markdown       # Pasteable markdown output
+antenna test-suite --verbose               # Inline request/response payloads
 ```
+
+### Test Suite
+
+The test suite evaluates relay agent model compatibility in three tiers:
+
+| Tier | What | How | Network? |
+|------|------|-----|----------|
+| **A** | Relay script parsing & validation (8 tests) | Feeds envelopes directly into `antenna-relay.sh` | No |
+| **B** | Model → exec tool call (4 tests) | Direct API call, checks model emits correct `exec` invocation | Yes (provider API) |
+| **C** | Model → sessions_send (4 tests) | Simulated relay response, checks model emits correct `sessions_send` | Yes (provider API) |
+
+**Multi-model comparison:** Pass `--models "a,b,c"` to run B+C against each model and produce a side-by-side comparison table with scores and timing.
+
+**Report output:** `--report [dir]` writes per-model request/response dumps, `summary.md`, and `summary.json` for forensic review.
+
+**Supported providers:** OpenAI, OpenAI Codex, OpenRouter, Nvidia, Ollama (local). Anthropic and Google adapters planned.
 
 ## Message Format
 
@@ -218,7 +243,9 @@ skills/antenna/
 │   ├── antenna-send.sh         # Sender: builds envelope, POSTs to peer
 │   ├── antenna-relay.sh        # Receiver: parses, validates, formats, logs
 │   ├── antenna-health.sh       # Peer health check
-│   └── antenna-peers.sh        # Peer listing utility
+│   ├── antenna-peers.sh        # Peer listing utility
+│   ├── antenna-model-test.sh   # Self-loop integration tester (smoke)
+│   └── antenna-test-suite.sh   # Three-tier model/script test suite
 ├── docs/
 │   └── ANTENNA-RELAY-FSD.md    # Full functional specification
 └── agent/

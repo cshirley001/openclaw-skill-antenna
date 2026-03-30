@@ -1,0 +1,975 @@
+#!/usr/bin/env bash
+# antenna-test-suite.sh — Three-tier Antenna model/script tester with comparison
+#
+# Test A: Script validation (no model, no network)
+# Test B: Model → tool call (does the model call exec with relay script?)
+# Test C: Model → response handling (does the model call sessions_send?)
+#
+# Usage:
+#   antenna-test-suite.sh [--model <model>] [--models <m1,m2,...>] [--tier A|B|C|all]
+#                         [--verbose] [--report [dir]] [--format terminal|markdown|json]
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+CONFIG_FILE="$SKILL_DIR/antenna-config.json"
+PEERS_FILE="$SKILL_DIR/antenna-peers.json"
+RELAY_SCRIPT="$SCRIPT_DIR/antenna-relay.sh"
+AGENT_INSTRUCTIONS="$SKILL_DIR/agent/AGENTS.md"
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+
+MODELS=()
+TIER="all"
+VERBOSE=false
+REPORT_DIR=""
+FORMAT="terminal"
+MAX_MODELS=6
+
+# Per-run tracking
+declare -A RESULTS        # "model:test" → "pass|fail|skip"
+declare -A RESULTS_MSG    # "model:test" → failure/skip reason
+declare -A RESULTS_TIME   # "model" → elapsed seconds for B+C
+declare -A MODEL_SCORES   # "model" → "pass/total"
+declare -A RAW_REQUESTS   # "model:tier" → request JSON
+declare -A RAW_RESPONSES  # "model:tier" → response JSON
+
+TIER_A_PASS=0
+TIER_A_FAIL=0
+TIER_A_TOTAL=0
+
+TOTAL_PASS=0
+TOTAL_FAIL=0
+TOTAL_SKIP=0
+
+RUN_TIMESTAMP=""
+
+# ANSI colors (disabled for non-terminal formats)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Parse args ───────────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)    MODELS+=("$2"); shift 2 ;;
+    --models)   IFS=',' read -ra _M <<< "$2"; MODELS+=("${_M[@]}"); shift 2 ;;
+    --tier)     TIER="$2"; shift 2 ;;
+    --verbose)  VERBOSE=true; shift ;;
+    --report)
+      if [[ "${2:-}" != "" && "${2:0:1}" != "-" ]]; then
+        REPORT_DIR="$2"; shift 2
+      else
+        REPORT_DIR="$SKILL_DIR/test-results"; shift
+      fi
+      ;;
+    --format)   FORMAT="$2"; shift 2 ;;
+    --compare)  shift ;;  # implied by --models, accepted for clarity
+    -h|--help)
+      cat <<'EOF'
+Usage: antenna-test-suite.sh [options]
+
+  --model <model>          Single model for B/C tiers (full provider/model ID)
+  --models <m1,m2,...>     Comma-separated models for comparison (max 6)
+  --tier A|B|C|all         Run specific tier (default: all)
+  --verbose                Show full request/response payloads inline
+  --report [dir]           Save structured report (default: test-results/)
+  --format terminal|markdown|json   Output format (default: terminal)
+  --compare                Enable comparison table (implied by --models)
+
+Tiers:
+  A  Script validation — tests antenna-relay.sh parsing (no model, no network)
+  B  Model → tool call — does the model call exec with relay script?
+  C  Model → response handling — does the model call sessions_send correctly?
+
+Examples:
+  antenna-test-suite.sh --tier A
+  antenna-test-suite.sh --model openai/gpt-5.4
+  antenna-test-suite.sh --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex" --report
+  antenna-test-suite.sh --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex" --format markdown
+EOF
+      exit 0
+      ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Validate model count
+if [[ ${#MODELS[@]} -gt $MAX_MODELS ]]; then
+  echo "Error: Maximum $MAX_MODELS models allowed (got ${#MODELS[@]})" >&2
+  exit 1
+fi
+
+# Disable colors for non-terminal output
+if [[ "$FORMAT" != "terminal" ]]; then
+  RED="" GREEN="" YELLOW="" CYAN="" BOLD="" DIM="" NC=""
+fi
+
+RUN_TIMESTAMP=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
+
+# ── Output helpers ───────────────────────────────────────────────────────────
+
+out() { echo -e "$@"; }
+
+pass() {
+  local test_id="$1" label="$2" model="${3:-}"
+  RESULTS["${model}:${test_id}"]="pass"
+  TOTAL_PASS=$((TOTAL_PASS + 1))
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo -e "  ${GREEN}✓ PASS${NC}  ${test_id} — ${label}"
+  fi
+}
+
+fail() {
+  local test_id="$1" label="$2" reason="${3:-}" model="${4:-}"
+  RESULTS["${model}:${test_id}"]="fail"
+  RESULTS_MSG["${model}:${test_id}"]="$reason"
+  TOTAL_FAIL=$((TOTAL_FAIL + 1))
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo -e "  ${RED}✗ FAIL${NC}  ${test_id} — ${label}"
+    if [[ -n "$reason" ]]; then
+      echo -e "         ${DIM}${reason}${NC}"
+    fi
+  fi
+}
+
+skip() {
+  local test_id="$1" label="$2" reason="${3:-}" model="${4:-}"
+  RESULTS["${model}:${test_id}"]="skip"
+  RESULTS_MSG["${model}:${test_id}"]="$reason"
+  TOTAL_SKIP=$((TOTAL_SKIP + 1))
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo -e "  ${YELLOW}— SKIP${NC}  ${test_id} — ${label}"
+    if [[ -n "$reason" ]]; then
+      echo -e "         ${DIM}${reason}${NC}"
+    fi
+  fi
+}
+
+verbose_out() {
+  if [[ "$VERBOSE" == "true" && "$FORMAT" == "terminal" ]]; then
+    echo -e "         ${DIM}$1${NC}"
+  fi
+}
+
+section() {
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "${CYAN}${BOLD}═══ $1 ═══${NC}"
+    echo ""
+  fi
+}
+
+# ── Resolve model API details ───────────────────────────────────────────────
+
+resolve_model_api() {
+  local model="$1"
+  local provider model_name
+
+  provider="${model%%/*}"
+  model_name="${model#*/}"
+
+  case "$provider" in
+    openai)
+      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}"
+      ;;
+    openai-codex)
+      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}"
+      ;;
+    openrouter)
+      echo "https://openrouter.ai/api/v1|${OPENROUTER_API_KEY:-${OR_API_KEY:-}}|${model#openrouter/}"
+      ;;
+    anthropic)
+      echo "UNSUPPORTED"
+      ;;
+    ollama)
+      echo "http://127.0.0.1:11434/v1|ollama|${model_name}"
+      ;;
+    google)
+      echo "UNSUPPORTED"
+      ;;
+    nvidia)
+      echo "https://integrate.api.nvidia.com/v1|${NVIDIA_API_KEY:-${NIM_API_KEY:-}}|${model#nvidia/}"
+      ;;
+    *)
+      echo "UNSUPPORTED"
+      ;;
+  esac
+}
+
+check_model_api() {
+  local api_info="$1" model="$2"
+  if [[ "$api_info" == "UNSUPPORTED" ]]; then
+    echo "unsupported_provider"
+    return
+  fi
+  local api_key
+  IFS='|' read -r _ api_key _ <<< "$api_info"
+  if [[ -z "$api_key" ]]; then
+    echo "no_key"
+    return
+  fi
+  echo "ok"
+}
+
+# ── Tool definitions ─────────────────────────────────────────────────────────
+
+TOOLS_JSON='[
+  {
+    "type": "function",
+    "function": {
+      "name": "exec",
+      "description": "Execute a shell command",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {"type": "string", "description": "Shell command to execute"}
+        },
+        "required": ["command"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sessions_send",
+      "description": "Send a message to a session",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sessionKey": {"type": "string", "description": "Target session key"},
+          "message": {"type": "string", "description": "Message to send"},
+          "timeoutSeconds": {"type": "number", "description": "Timeout in seconds"}
+        },
+        "required": ["sessionKey", "message"]
+      }
+    }
+  }
+]'
+
+# ── Self peer ────────────────────────────────────────────────────────────────
+
+SELF_PEER=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TIER A: Script validation
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_tier_a() {
+  section "TIER A: Script Validation (relay parser)"
+
+  if [[ -z "$SELF_PEER" ]]; then
+    fail "A.0" "No self-peer in peers registry" "Check antenna-peers.json" ""
+    return
+  fi
+
+  local tests_run=0
+
+  # ── A.1: Valid envelope → relay ok ──
+  local valid_envelope="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:test:main
+timestamp: 2026-01-01T00:00:00Z
+
+Hello, this is a test message.
+[/ANTENNA_RELAY]"
+
+  local result action status session_key
+  result=$(echo "$valid_envelope" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
+
+  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:test:main" ]]; then
+    pass "A.1" "Valid envelope → relay/ok with correct session"
+  else
+    fail "A.1" "Valid envelope → relay/ok" "Got action=$action status=$status session=$session_key"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.2: Missing envelope markers → malformed ──
+  result=$(echo "Just a regular message." | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  if [[ "$status" == "malformed" ]]; then
+    pass "A.2" "Missing envelope markers → malformed"
+  else
+    fail "A.2" "Missing envelope markers → malformed" "Got status=$status"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.3: Missing 'from' header → rejected ──
+  local no_from="[ANTENNA_RELAY]
+target_session: main
+timestamp: 2026-01-01T00:00:00Z
+
+Test body
+[/ANTENNA_RELAY]"
+  result=$(echo "$no_from" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  if [[ "$action" == "reject" ]]; then
+    pass "A.3" "Missing 'from' header → rejected"
+  else
+    fail "A.3" "Missing 'from' header → rejected" "Got action=$action"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.4: Unknown peer → rejected ──
+  local unknown="[ANTENNA_RELAY]
+from: totally_unknown_host
+target_session: main
+timestamp: 2026-01-01T00:00:00Z
+
+Test body
+[/ANTENNA_RELAY]"
+  result=$(echo "$unknown" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  if [[ "$action" == "reject" ]]; then
+    pass "A.4" "Unknown peer → rejected"
+  else
+    fail "A.4" "Unknown peer → rejected" "Got action=$action"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.5: "main" → agent:<local>:main ──
+  local main_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: main
+timestamp: 2026-01-01T00:00:00Z
+
+Test default session.
+[/ANTENNA_RELAY]"
+  result=$(echo "$main_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
+  if [[ "$session_key" == "agent:${LOCAL_AGENT}:main" ]]; then
+    pass "A.5" "target_session 'main' → agent:${LOCAL_AGENT}:main"
+  else
+    fail "A.5" "Session 'main' mapping" "Expected agent:${LOCAL_AGENT}:main, got $session_key"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.6: Oversized message → rejected ──
+  local max_len
+  max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null)
+  local big_body
+  big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
+  local oversize="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: main
+timestamp: 2026-01-01T00:00:00Z
+
+${big_body}
+[/ANTENNA_RELAY]"
+  result=$(echo "$oversize" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  if [[ "$action" == "reject" ]]; then
+    pass "A.6" "Oversized message → rejected (>${max_len} chars)"
+  else
+    fail "A.6" "Oversized message → rejected" "Got action=$action"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.7: No closing marker → malformed ──
+  local no_close="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: main
+timestamp: 2026-01-01T00:00:00Z
+
+Missing close marker"
+  result=$(echo "$no_close" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  if [[ "$status" == "malformed" ]]; then
+    pass "A.7" "Missing closing marker → malformed"
+  else
+    fail "A.7" "Missing closing marker → malformed" "Got status=$status"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.8: User header in delivery message ──
+  local user_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:test:main
+timestamp: 2026-01-01T00:00:00Z
+user: TestUser
+
+Humanized test.
+[/ANTENNA_RELAY]"
+  result=$(echo "$user_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  local delivery_msg
+  delivery_msg=$(echo "$result" | jq -r '.message // ""' 2>/dev/null)
+  if echo "$delivery_msg" | grep -q "TestUser"; then
+    pass "A.8" "User header included in delivery message"
+  else
+    fail "A.8" "User header in delivery" "TestUser not found in message"
+  fi
+  tests_run=$((tests_run + 1))
+
+  TIER_A_TOTAL=$tests_run
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TIER B: Model → exec tool call
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_tier_b() {
+  local model="$1"
+  local model_label="${model//\//_}"
+
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "  ${CYAN}── Tier B: ${model} ──${NC}"
+    echo ""
+  fi
+
+  local api_info check
+  api_info=$(resolve_model_api "$model")
+  check=$(check_model_api "$api_info" "$model")
+
+  if [[ "$check" == "unsupported_provider" ]]; then
+    skip "B.1" "API call" "Provider not supported: ${model%%/*}" "$model"
+    skip "B.2" "Tool call name" "Skipped (no API)" "$model"
+    skip "B.3" "Relay script ref" "Skipped (no API)" "$model"
+    skip "B.4" "Envelope content" "Skipped (no API)" "$model"
+    return
+  fi
+  if [[ "$check" == "no_key" ]]; then
+    skip "B.1" "API call" "No API key for ${model%%/*}" "$model"
+    skip "B.2" "Tool call name" "Skipped (no key)" "$model"
+    skip "B.3" "Relay script ref" "Skipped (no key)" "$model"
+    skip "B.4" "Envelope content" "Skipped (no key)" "$model"
+    return
+  fi
+
+  local base_url api_key model_name
+  IFS='|' read -r base_url api_key model_name <<< "$api_info"
+
+  local system_prompt
+  system_prompt=$(cat "$AGENT_INSTRUCTIONS")
+
+  local test_message="[ANTENNA_RELAY]
+from: ${SELF_PEER:-testhost}
+target_session: agent:test:main
+timestamp: 2026-01-01T00:00:00Z
+
+Hello from the model tester.
+[/ANTENNA_RELAY]"
+
+  local request_body
+  request_body=$(jq -n \
+    --arg model "$model_name" \
+    --arg system "$system_prompt" \
+    --arg user "$test_message" \
+    --argjson tools "$TOOLS_JSON" \
+    '{
+      model: $model,
+      messages: [
+        {role: "system", content: $system},
+        {role: "user", content: $user}
+      ],
+      tools: $tools,
+      temperature: 0
+    }')
+
+  RAW_REQUESTS["${model}:B"]="$request_body"
+
+  verbose_out "Calling $base_url/chat/completions..."
+
+  local start_time response http_code elapsed
+  start_time=$(date +%s%N)
+
+  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
+    -X POST "$base_url/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $api_key" \
+    -d "$request_body" \
+    --max-time 30 2>&1)
+
+  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
+
+  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
+  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
+
+  RAW_RESPONSES["${model}:B"]="$response"
+
+  verbose_out "HTTP $http_code (${elapsed}ms)"
+  verbose_out "Response: $(echo "$response" | jq -c '.choices[0].message' 2>/dev/null | head -c 200)"
+
+  # B.1: API success
+  if [[ "$http_code" != "200" ]]; then
+    local err_msg
+    err_msg=$(echo "$response" | jq -r '.error.message // "unknown"' 2>/dev/null || echo "HTTP $http_code")
+    fail "B.1" "API call" "HTTP $http_code: $err_msg" "$model"
+    skip "B.2" "Tool call name" "Skipped (API failed)" "$model"
+    skip "B.3" "Relay script ref" "Skipped (API failed)" "$model"
+    skip "B.4" "Envelope content" "Skipped (API failed)" "$model"
+    return
+  fi
+  pass "B.1" "API call succeeded (${elapsed}ms)" "$model"
+
+  # B.2: Tool call present and is exec
+  local tool_calls first_tool
+  tool_calls=$(echo "$response" | jq -r '.choices[0].message.tool_calls // empty' 2>/dev/null)
+  if [[ -z "$tool_calls" || "$tool_calls" == "null" ]]; then
+    local content
+    content=$(echo "$response" | jq -r '.choices[0].message.content // ""' 2>/dev/null)
+    fail "B.1" "Produced tool call" "Model returned text instead of tool call" "$model"
+    verbose_out "Content: $(echo "$content" | head -c 200)"
+    skip "B.2" "Tool call name" "No tool call" "$model"
+    skip "B.3" "Relay script ref" "No tool call" "$model"
+    skip "B.4" "Envelope content" "No tool call" "$model"
+    return
+  fi
+
+  first_tool=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.name // ""' 2>/dev/null)
+  if [[ "$first_tool" == "exec" ]]; then
+    pass "B.2" "First tool call is 'exec'" "$model"
+  else
+    fail "B.2" "First tool call is 'exec'" "Got '$first_tool'" "$model"
+  fi
+
+  # B.3: References relay script
+  local exec_args exec_command
+  exec_args=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.arguments // ""' 2>/dev/null)
+  exec_command=$(echo "$exec_args" | jq -r '.command // ""' 2>/dev/null)
+  if echo "$exec_command" | grep -q "antenna-relay\|relay\.sh"; then
+    pass "B.3" "Command references relay script" "$model"
+  else
+    fail "B.3" "Command references relay script" "Command: $(echo "$exec_command" | head -c 100)" "$model"
+  fi
+
+  # B.4: Includes envelope content
+  if echo "$exec_command" | grep -q "ANTENNA_RELAY"; then
+    pass "B.4" "Command includes envelope content" "$model"
+  else
+    fail "B.4" "Command includes envelope content" "ANTENNA_RELAY not found in command" "$model"
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TIER C: Model → sessions_send
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_tier_c() {
+  local model="$1"
+
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "  ${CYAN}── Tier C: ${model} ──${NC}"
+    echo ""
+  fi
+
+  local api_info check
+  api_info=$(resolve_model_api "$model")
+  check=$(check_model_api "$api_info" "$model")
+
+  if [[ "$check" != "ok" ]]; then
+    skip "C.1" "API call" "Skipped (see Tier B)" "$model"
+    skip "C.2" "Tool call name" "Skipped" "$model"
+    skip "C.3" "sessionKey match" "Skipped" "$model"
+    skip "C.4" "Message content" "Skipped" "$model"
+    return
+  fi
+
+  local base_url api_key model_name
+  IFS='|' read -r base_url api_key model_name <<< "$api_info"
+
+  local system_prompt
+  system_prompt=$(cat "$AGENT_INSTRUCTIONS")
+
+  local test_message="[ANTENNA_RELAY]
+from: ${SELF_PEER:-testhost}
+target_session: agent:test:main
+timestamp: 2026-01-01T00:00:00Z
+
+Hello from the model tester.
+[/ANTENNA_RELAY]"
+
+  local simulated_result
+  simulated_result=$(jq -n '{
+    action: "relay",
+    status: "ok",
+    sessionKey: "agent:test:main",
+    message: "📡 Antenna from Test Peer (testhost) — 2026-01-01 00:00 UTC\n\nHello from the model tester.",
+    from: "testhost",
+    timestamp: "2026-01-01T00:00:00Z",
+    chars: 30
+  }' | jq -c .)
+
+  local tool_call_id="call_test_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+
+  local request_body
+  request_body=$(jq -n \
+    --arg model "$model_name" \
+    --arg system "$system_prompt" \
+    --arg user_msg "$test_message" \
+    --arg tool_call_id "$tool_call_id" \
+    --arg tool_result "$simulated_result" \
+    --argjson tools "$TOOLS_JSON" \
+    '{
+      model: $model,
+      messages: [
+        {role: "system", content: $system},
+        {role: "user", content: $user_msg},
+        {role: "assistant", content: null, tool_calls: [
+          {
+            id: $tool_call_id,
+            type: "function",
+            function: {
+              name: "exec",
+              arguments: ("{\"command\": \"echo \\\"" + $user_msg + "\\\" | bash ./scripts/antenna-relay.sh --stdin\"}")
+            }
+          }
+        ]},
+        {role: "tool", tool_call_id: $tool_call_id, content: $tool_result}
+      ],
+      tools: $tools,
+      temperature: 0
+    }')
+
+  RAW_REQUESTS["${model}:C"]="$request_body"
+
+  verbose_out "Calling $base_url/chat/completions..."
+
+  local start_time response http_code elapsed
+  start_time=$(date +%s%N)
+
+  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
+    -X POST "$base_url/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $api_key" \
+    -d "$request_body" \
+    --max-time 30 2>&1)
+
+  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
+
+  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
+  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
+
+  RAW_RESPONSES["${model}:C"]="$response"
+
+  verbose_out "HTTP $http_code (${elapsed}ms)"
+  verbose_out "Response: $(echo "$response" | jq -c '.choices[0].message' 2>/dev/null | head -c 200)"
+
+  # C.1: API success + tool call present
+  if [[ "$http_code" != "200" ]]; then
+    local err_msg
+    err_msg=$(echo "$response" | jq -r '.error.message // "unknown"' 2>/dev/null || echo "HTTP $http_code")
+    fail "C.1" "API call" "HTTP $http_code: $err_msg" "$model"
+    skip "C.2" "Tool call name" "Skipped (API failed)" "$model"
+    skip "C.3" "sessionKey match" "Skipped" "$model"
+    skip "C.4" "Message content" "Skipped" "$model"
+    return
+  fi
+
+  local tool_calls
+  tool_calls=$(echo "$response" | jq -r '.choices[0].message.tool_calls // empty' 2>/dev/null)
+  if [[ -z "$tool_calls" || "$tool_calls" == "null" ]]; then
+    local content
+    content=$(echo "$response" | jq -r '.choices[0].message.content // ""' 2>/dev/null)
+    fail "C.1" "Produced tool call" "Model returned text instead of tool call" "$model"
+    verbose_out "Content: $(echo "$content" | head -c 200)"
+    skip "C.2" "Tool call name" "No tool call" "$model"
+    skip "C.3" "sessionKey match" "No tool call" "$model"
+    skip "C.4" "Message content" "No tool call" "$model"
+    return
+  fi
+  pass "C.1" "API call succeeded + tool call produced (${elapsed}ms)" "$model"
+
+  # C.2: Tool is sessions_send
+  local tool_name
+  tool_name=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.name // ""' 2>/dev/null)
+  if [[ "$tool_name" == "sessions_send" ]]; then
+    pass "C.2" "Tool call is 'sessions_send'" "$model"
+  else
+    fail "C.2" "Tool call is 'sessions_send'" "Got '$tool_name'" "$model"
+    return
+  fi
+
+  # C.3: Correct sessionKey
+  local send_args send_session
+  send_args=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.arguments // ""' 2>/dev/null)
+  send_session=$(echo "$send_args" | jq -r '.sessionKey // ""' 2>/dev/null)
+  if [[ "$send_session" == "agent:test:main" ]]; then
+    pass "C.3" "sessionKey matches (agent:test:main)" "$model"
+  else
+    fail "C.3" "sessionKey matches" "Expected 'agent:test:main', got '$send_session'" "$model"
+  fi
+
+  # C.4: Message includes relay content
+  local send_message
+  send_message=$(echo "$send_args" | jq -r '.message // ""' 2>/dev/null)
+  if echo "$send_message" | grep -q "Antenna\|Hello from the model tester"; then
+    pass "C.4" "Message includes relay content" "$model"
+  else
+    fail "C.4" "Message includes relay content" "Expected relay text not found" "$model"
+    verbose_out "Message: $(echo "$send_message" | head -c 200)"
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPARISON TABLE
+# ══════════════════════════════════════════════════════════════════════════════
+
+print_comparison_table() {
+  local all_tests=("B.1" "B.2" "B.3" "B.4" "C.1" "C.2" "C.3" "C.4")
+  local total_bc=8
+
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "${BOLD}${CYAN}═══ Model Comparison ═══${NC}"
+    echo ""
+
+    # Header
+    printf "  ${BOLD}%-42s" "Model"
+    for t in "${all_tests[@]}"; do
+      printf " %-3s" "$t"
+    done
+    printf "  %-6s  %s${NC}\n" "Score" "Time"
+
+    # Separator
+    printf "  "
+    printf '─%.0s' {1..82}
+    echo ""
+
+    # Per-model rows
+    for model in "${MODELS[@]}"; do
+      printf "  %-42s" "$model"
+
+      local model_pass=0
+      local model_total=0
+      for t in "${all_tests[@]}"; do
+        local r="${RESULTS["${model}:${t}"]:-none}"
+        model_total=$((model_total + 1))
+        case "$r" in
+          pass)  printf " ${GREEN}✓${NC}  "; model_pass=$((model_pass + 1)) ;;
+          fail)  printf " ${RED}✗${NC}  "; ;;
+          skip)  printf " ${YELLOW}—${NC}  "; ;;
+          *)     printf " ${DIM}?${NC}  "; ;;
+        esac
+      done
+
+      MODEL_SCORES["$model"]="${model_pass}/${total_bc}"
+      printf "  %-6s" "${model_pass}/${total_bc}"
+
+      local time_val="${RESULTS_TIME["$model"]:-n/a}"
+      printf "  %s" "$time_val"
+      echo ""
+    done
+
+    echo ""
+
+    # Verdict
+    local best_model="" best_score=0
+    for model in "${MODELS[@]}"; do
+      local score="${MODEL_SCORES["$model"]:-0/0}"
+      local s="${score%%/*}"
+      if [[ "$s" -gt "$best_score" ]]; then
+        best_score=$s
+        best_model=$model
+      fi
+    done
+
+    if [[ -n "$best_model" && "$best_score" -gt 0 ]]; then
+      echo -e "  ${GREEN}${BOLD}Verdict: ${best_model} — RECOMMENDED (${MODEL_SCORES["$best_model"]}, ${RESULTS_TIME["$best_model"]:-?})${NC}"
+    else
+      echo -e "  ${YELLOW}Verdict: No model passed all tests.${NC}"
+    fi
+
+  elif [[ "$FORMAT" == "markdown" ]]; then
+    echo ""
+    echo "## Model Comparison"
+    echo ""
+
+    printf "| %-40s |" "Model"
+    for t in "${all_tests[@]}"; do
+      printf " %s |" "$t"
+    done
+    printf " %-5s | %s |\n" "Score" "Time"
+
+    printf "| "
+    printf '%-40s' "$(printf -- '-%.0s' {1..40})"
+    printf " |"
+    for _ in "${all_tests[@]}"; do
+      printf " --- |"
+    done
+    printf " ----- | ---- |\n"
+
+    for model in "${MODELS[@]}"; do
+      printf "| %-40s |" "$model"
+      local model_pass=0
+      for t in "${all_tests[@]}"; do
+        local r="${RESULTS["${model}:${t}"]:-none}"
+        case "$r" in
+          pass)  printf " ✅ |"; model_pass=$((model_pass + 1)) ;;
+          fail)  printf " ❌ |" ;;
+          skip)  printf " ⏭️ |" ;;
+          *)     printf " ❓ |" ;;
+        esac
+      done
+      MODEL_SCORES["$model"]="${model_pass}/${total_bc}"
+      printf " %-5s |" "${model_pass}/${total_bc}"
+      printf " %s |\n" "${RESULTS_TIME["$model"]:-n/a}"
+    done
+    echo ""
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SUMMARY
+# ══════════════════════════════════════════════════════════════════════════════
+
+print_summary() {
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "${BOLD}═══════════════════════════════════════════${NC}"
+    echo -e "  ${GREEN}PASS: $TOTAL_PASS${NC}  ${RED}FAIL: $TOTAL_FAIL${NC}  ${YELLOW}SKIP: $TOTAL_SKIP${NC}  Total: $((TOTAL_PASS + TOTAL_FAIL + TOTAL_SKIP))"
+    echo -e "${BOLD}═══════════════════════════════════════════${NC}"
+  elif [[ "$FORMAT" == "markdown" ]]; then
+    echo ""
+    echo "---"
+    echo "**Results:** PASS: $TOTAL_PASS | FAIL: $TOTAL_FAIL | SKIP: $TOTAL_SKIP | Total: $((TOTAL_PASS + TOTAL_FAIL + TOTAL_SKIP))"
+  elif [[ "$FORMAT" == "json" ]]; then
+    # JSON output — collect everything
+    local models_json="[]"
+    for model in "${MODELS[@]}"; do
+      local model_results="{}"
+      for t in "B.1" "B.2" "B.3" "B.4" "C.1" "C.2" "C.3" "C.4"; do
+        local r="${RESULTS["${model}:${t}"]:-none}"
+        local msg="${RESULTS_MSG["${model}:${t}"]:-}"
+        model_results=$(echo "$model_results" | jq \
+          --arg t "$t" --arg r "$r" --arg msg "$msg" \
+          '. + {($t): {result: $r, message: $msg}}')
+      done
+      models_json=$(echo "$models_json" | jq \
+        --arg model "$model" \
+        --arg score "${MODEL_SCORES["$model"]:-n/a}" \
+        --arg time "${RESULTS_TIME["$model"]:-n/a}" \
+        --argjson tests "$model_results" \
+        '. + [{model: $model, score: $score, time: $time, tests: $tests}]')
+    done
+
+    jq -n \
+      --arg timestamp "$RUN_TIMESTAMP" \
+      --argjson tier_a "{\"pass\": $TIER_A_PASS, \"total\": $TIER_A_TOTAL}" \
+      --argjson models "$models_json" \
+      --argjson totals "{\"pass\": $TOTAL_PASS, \"fail\": $TOTAL_FAIL, \"skip\": $TOTAL_SKIP}" \
+      '{timestamp: $timestamp, tier_a: $tier_a, models: $models, totals: $totals}'
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REPORT WRITER
+# ══════════════════════════════════════════════════════════════════════════════
+
+write_report() {
+  if [[ -z "$REPORT_DIR" ]]; then
+    return
+  fi
+
+  local run_dir="${REPORT_DIR}/${RUN_TIMESTAMP}"
+  mkdir -p "$run_dir"
+
+  # Tier A results
+  echo '{}' | jq --argjson pass "$TIER_A_PASS" --argjson total "$TIER_A_TOTAL" \
+    '{tier: "A", pass: $pass, total: $total}' > "$run_dir/tier-a.json"
+
+  # Per-model request/response dumps
+  for model in "${MODELS[@]}"; do
+    local safe_name="${model//\//__}"
+    local model_dir="$run_dir/models/${safe_name}"
+    mkdir -p "$model_dir"
+
+    # Dump raw requests/responses
+    if [[ -n "${RAW_REQUESTS["${model}:B"]:-}" ]]; then
+      echo "${RAW_REQUESTS["${model}:B"]}" | jq . > "$model_dir/tier-b-request.json" 2>/dev/null || true
+    fi
+    if [[ -n "${RAW_RESPONSES["${model}:B"]:-}" ]]; then
+      echo "${RAW_RESPONSES["${model}:B"]}" | jq . > "$model_dir/tier-b-response.json" 2>/dev/null || true
+    fi
+    if [[ -n "${RAW_REQUESTS["${model}:C"]:-}" ]]; then
+      echo "${RAW_REQUESTS["${model}:C"]}" | jq . > "$model_dir/tier-c-request.json" 2>/dev/null || true
+    fi
+    if [[ -n "${RAW_RESPONSES["${model}:C"]:-}" ]]; then
+      echo "${RAW_RESPONSES["${model}:C"]}" | jq . > "$model_dir/tier-c-response.json" 2>/dev/null || true
+    fi
+  done
+
+  # Summary JSON
+  FORMAT="json" print_summary > "$run_dir/summary.json" 2>/dev/null
+
+  # Summary markdown
+  FORMAT="markdown" print_comparison_table > "$run_dir/summary.md" 2>/dev/null
+  FORMAT="markdown" print_summary >> "$run_dir/summary.md" 2>/dev/null
+
+  # Restore format
+  if [[ "$FORMAT" == "terminal" ]]; then
+    echo ""
+    echo -e "  ${CYAN}Report saved: ${run_dir}/${NC}"
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+
+if [[ "$FORMAT" == "terminal" ]]; then
+  echo -e "${BOLD}=== Antenna Test Suite ===${NC}"
+  if [[ ${#MODELS[@]} -gt 0 ]]; then
+    echo "Models: ${MODELS[*]}"
+  fi
+  echo "Tier:   $TIER"
+  if [[ -n "$REPORT_DIR" ]]; then
+    echo "Report: $REPORT_DIR"
+  fi
+fi
+
+# Run Tier A (always, once — model-independent)
+if [[ "$TIER" == "all" || "$TIER" == "A" || "$TIER" == "a" ]]; then
+  run_tier_a
+  TIER_A_PASS=$((TOTAL_PASS))  # snapshot after A
+fi
+
+# Run B/C per model
+if [[ ${#MODELS[@]} -gt 0 ]]; then
+  for model in "${MODELS[@]}"; do
+    local_start=$(date +%s%N)
+
+    if [[ "$TIER" == "all" || "$TIER" == "B" || "$TIER" == "b" ]]; then
+      section "TIER B: Model → Tool Call"
+      run_tier_b "$model"
+    fi
+
+    if [[ "$TIER" == "all" || "$TIER" == "C" || "$TIER" == "c" ]]; then
+      section "TIER C: Model → Response Handling"
+      run_tier_c "$model"
+    fi
+
+    local_elapsed=$(( ($(date +%s%N) - local_start) / 1000000 ))
+    RESULTS_TIME["$model"]="$(echo "scale=1; $local_elapsed / 1000" | bc)s"
+  done
+fi
+
+# Tier A pass count (for reporting)
+TIER_A_PASS=$((TIER_A_PASS))
+TIER_A_TOTAL=$((TIER_A_TOTAL))
+
+# Comparison table (multi-model)
+if [[ ${#MODELS[@]} -gt 1 ]]; then
+  print_comparison_table
+fi
+
+# Summary
+print_summary
+
+# Report
+write_report
+
+# Exit code
+[[ $TOTAL_FAIL -gt 0 ]] && exit 1
+exit 0

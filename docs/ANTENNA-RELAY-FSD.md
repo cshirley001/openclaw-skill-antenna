@@ -547,7 +547,11 @@ skills/antenna/
 │   └── antenna                 # CLI dispatcher
 ├── scripts/
 │   ├── antenna-send.sh         # Sender: builds envelope, POSTs to peer
-│   └── antenna-relay.sh        # Receiver: parses, validates, formats, logs
+│   ├── antenna-relay.sh        # Receiver: parses, validates, formats, logs
+│   ├── antenna-health.sh       # Peer health check
+│   ├── antenna-peers.sh        # Peer listing utility
+│   ├── antenna-model-test.sh   # Self-loop integration tester (smoke)
+│   └── antenna-test-suite.sh   # Three-tier model/script test suite
 ├── docs/
 │   └── ANTENNA-RELAY-FSD.md    # This document
 └── agent/
@@ -563,6 +567,169 @@ skills/antenna/
 
 ---
 
+## 17. Model Tester (`antenna test`)
+
+### Purpose
+
+Validate whether a given LLM can reliably serve as the Antenna relay agent. The test performs a **real end-to-end self-loop**: it temporarily patches the relay agent model in config, sends an actual `[ANTENNA_RELAY]` message from the local host to itself, and confirms the relay completed successfully by checking the transaction log.
+
+### Design
+
+- **Self-loop:** The test sends to the self-peer (the peer entry with `self: true` in `antenna-peers.json`). No remote host required.
+- **Dedicated session:** All test messages target session key `agent:antenna:modeltest` to avoid polluting real sessions.
+- **Config swap:** Temporarily writes the candidate model into `antenna-config.json` field `relay_agent_model`, restoring the original value after the test run (even on failure/interrupt).
+- **Log-based verification:** After sending, the script polls `antenna.log` for up to 15 seconds looking for an `INBOUND` entry with `status:relayed` matching the unique test message nonce. Match = pass; timeout = fail.
+- **Unique nonce:** Each test message includes a random token (`ANTENNA_MODEL_TEST_<random>`) so log matching is unambiguous even under concurrent use.
+
+### CLI Interface
+
+```
+antenna test <model> [options]
+
+Options:
+  --runs <n>       Number of test iterations (default: 1)
+  --timeout <sec>  Per-run relay timeout in seconds (default: 30)
+  --keep-model     Don't restore the original model after testing (leave candidate as active)
+
+Output per run:
+  RUN <n>/<total> | model: <model> | status: PASS/FAIL | time: <seconds>s [| error: <reason>]
+
+Summary (when --runs > 1):
+  === Summary ===
+  Model:  <model>
+  Runs:   <total>
+  Passed: <n>  Failed: <n>
+  Avg time: <seconds>s  Min: <seconds>s  Max: <seconds>s
+```
+
+### Pass/Fail Criteria
+
+| Outcome | Condition |
+|---|---|
+| **PASS** | `antenna-send.sh` returns `status:delivered` AND a matching `INBOUND … status:relayed` log entry appears within the timeout window |
+| **FAIL — send error** | `antenna-send.sh` exits non-zero or returns a non-delivered status |
+| **FAIL — relay timeout** | Send succeeded but no matching inbound log entry within timeout |
+| **FAIL — relay rejected** | Matching inbound log entry found but status is `REJECTED` or `MALFORMED` |
+
+### Safety
+
+- Original `relay_agent_model` is captured before the first run and restored in a `trap EXIT` handler.
+- The script validates that a self-peer exists before starting.
+- If `--keep-model` is passed, the candidate model remains active after testing (useful when the user intends to switch).
+
+### File
+
+`scripts/antenna-model-test.sh` — standalone script.
+`bin/antenna test` — CLI dispatch entry point.
+
+---
+
+## 18. Test Suite (`antenna test-suite`)
+
+### Purpose
+
+Decomposed three-tier tester that evaluates relay agent model compatibility without the latency and backpressure issues of the self-loop integration test. Isolates script correctness (Tier A) from model competence (Tiers B/C).
+
+### Tier Architecture
+
+| Tier | What | Method | Network? | Tests |
+|------|------|--------|----------|-------|
+| **A** | Relay script parsing & validation | Feed envelopes directly into `antenna-relay.sh`, check JSON output with `jq` | No | 8 |
+| **B** | Model → `exec` tool call | Direct provider API call with agent instructions + sample envelope; verify model emits `exec` referencing relay script | Yes (provider API) | 4 |
+| **C** | Model → `sessions_send` | Simulated relay-script success response; verify model emits `sessions_send` with correct `sessionKey` and message | Yes (provider API) | 4 |
+
+### Tier A Tests
+
+| # | Input | Expected |
+|---|-------|----------|
+| A.1 | Valid envelope | `action:relay, status:ok`, correct `sessionKey` |
+| A.2 | No envelope markers | `status:malformed` |
+| A.3 | Missing `from` header | `action:reject` |
+| A.4 | Unknown peer | `action:reject` |
+| A.5 | `target_session: main` | `sessionKey` = `agent:<local_agent_id>:main` |
+| A.6 | Oversized body (>`max_message_length`) | `action:reject` |
+| A.7 | Missing closing marker | `status:malformed` |
+| A.8 | `user` header present | Delivery message includes user name |
+
+### Tier B Tests
+
+| # | Check | Pass condition |
+|---|-------|----------------|
+| B.1 | API call succeeds | HTTP 200 |
+| B.2 | First tool call is `exec` | `function.name == "exec"` |
+| B.3 | Command references relay script | Contains `antenna-relay` |
+| B.4 | Command includes envelope | Contains `ANTENNA_RELAY` |
+
+### Tier C Tests
+
+| # | Check | Pass condition |
+|---|-------|----------------|
+| C.1 | API call + tool call produced | HTTP 200 + `tool_calls` present |
+| C.2 | Tool call is `sessions_send` | `function.name == "sessions_send"` |
+| C.3 | `sessionKey` matches | Equals simulated relay output `sessionKey` |
+| C.4 | Message includes relay content | Contains expected relay text |
+
+### Multi-Model Comparison
+
+- `--models "a,b,c"` runs Tier B+C against each model (max 6).
+- Tier A runs once (model-independent).
+- Produces side-by-side comparison table with per-test pass/fail, scores, timing, and a verdict line (highest score + fastest).
+
+### Report Output (`--report [dir]`)
+
+```
+test-results/<timestamp>/
+  summary.md              ← comparison table + totals (markdown)
+  summary.json            ← machine-readable results
+  tier-a.json             ← Tier A pass/total
+  models/
+    <provider>__<model>/
+      tier-b-request.json
+      tier-b-response.json
+      tier-c-request.json
+      tier-c-response.json
+```
+
+### Output Formats
+
+| Flag | Description |
+|------|-------------|
+| `--format terminal` | Colored terminal output with ✓/✗ (default) |
+| `--format markdown` | Pasteable markdown tables |
+| `--format json` | Machine-readable JSON |
+
+### Supported Providers
+
+| Provider prefix | API endpoint | Status |
+|----------------|-------------|--------|
+| `openai/*` | `api.openai.com/v1` | ✅ Supported |
+| `openai-codex/*` | `api.openai.com/v1` | ✅ Supported |
+| `openrouter/*` | `openrouter.ai/api/v1` | ✅ Supported |
+| `nvidia/*` | `integrate.api.nvidia.com/v1` | ✅ Supported |
+| `ollama/*` | `127.0.0.1:11434/v1` | ✅ Supported |
+| `anthropic/*` | — | ⏳ Planned |
+| `google/*` | — | ⏳ Planned |
+
+### CLI
+
+```
+antenna test-suite [options]
+
+  --model <model>          Single provider/model ID for B/C tiers
+  --models <m1,m2,...>     Comma-separated models for comparison (max 6)
+  --tier A|B|C|all         Run specific tier (default: all)
+  --verbose                Show full request/response payloads inline
+  --report [dir]           Save structured report (default: test-results/)
+  --format terminal|markdown|json   Output format (default: terminal)
+```
+
+### File
+
+`scripts/antenna-test-suite.sh` — standalone script.
+`bin/antenna test-suite` — CLI dispatch entry point.
+
+---
+
 ## Revision History
 
 | Version | Date | Changes |
@@ -571,6 +738,7 @@ skills/antenna/
 | 0.2 | 2026-03-28 | Script-first architecture; dedicated Antenna agent; config file; CLI; transaction log; MCS deferred; detailed agent file specs |
 | 0.3 | 2026-03-28 | Stabilization: plain relay mode as default, `antenna msg` no longer auto-injects human sender identity, stable tests confirmed |
 | 1.0.0 | 2026-03-29 | v1.0 baseline release. Fixed `antenna-health.sh` and `antenna-peers.sh` (stale peer registry format). Removed stray `user_name` from config. Synced all docs to current architecture. Added README.md and CHANGELOG.md. Initialized git version control. |
+| 1.0.2 | 2026-03-30 | Three-tier test suite (§18): Tier A script validation, Tier B/C direct model API evaluation, multi-model comparison, structured reports, multiple output formats. |
 
 ---
 

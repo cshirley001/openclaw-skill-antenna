@@ -57,6 +57,30 @@ antenna-send.sh                         /hooks/agent endpoint
                                             → message appears in target session
 ```
 
+## Testing
+
+Built-in three-tier test suite to validate relay script correctness and model compatibility:
+
+```bash
+# Script-only validation (no model, no network)
+antenna test-suite --tier A
+
+# Full suite against a single model
+antenna test-suite --model openai/gpt-5.4
+
+# Compare multiple models side-by-side (max 6)
+antenna test-suite --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex"
+
+# Save structured report with request/response dumps
+antenna test-suite --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex" --report
+```
+
+| Tier | Tests | What it checks |
+|------|-------|----------------|
+| A | 8 | Relay script parsing, validation, rejection, session mapping |
+| B | 4 | Model correctly calls `exec` with relay script and envelope |
+| C | 4 | Model correctly calls `sessions_send` with relay output |
+
 ## Security
 
 - All traffic encrypted via Tailscale (WireGuard)
@@ -75,7 +99,7 @@ No hardcoded defaults assume a particular host, user, or model. See `SKILL.md` f
 
 ## Version
 
-**1.0.1** — Stable baseline with portable configuration.
+**1.0.2** — Test suite with multi-model comparison and structured reports.
 
 ## License
 

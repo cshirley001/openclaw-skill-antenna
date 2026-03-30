@@ -1,6 +1,7 @@
 # Runtime files — don't version
 antenna.log
 antenna.log.*
+test-results/
 
 # Secrets — never commit
 **/secrets/

@@ -41,6 +41,20 @@ Usage:
 
   antenna status                             Overall status summary
 
+  antenna test <model> [options]             Self-loop integration test (end-to-end)
+    --runs <n>                               Number of test iterations (default: 1)
+    --timeout <sec>                          Per-run relay timeout (default: 15s)
+    --keep-model                             Leave candidate model active after test
+
+  antenna test-suite [options]               Three-tier model/script test suite
+    --model <model>                          Single provider/model ID for B/C tiers
+    --models <m1,m2,...>                     Comma-separated models for comparison (max 6)
+    --tier A|B|C|all                         Run specific tier (default: all)
+    --verbose                                Show full request/response payloads inline
+    --report [dir]                           Save structured report (default: test-results/)
+    --format terminal|markdown|json          Output format (default: terminal)
+    --compare                                Enable comparison table (implied by --models)
+
 Send options:
   --session <key>     Target session on recipient (default: main)
   --subject <text>    Optional subject line
@@ -297,6 +311,14 @@ cmd_log() {
   tail -"$tail_n" "$LOG_FILE"
 }
 
+cmd_test() {
+  bash "$SCRIPTS_DIR/antenna-model-test.sh" "$@"
+}
+
+cmd_test_suite() {
+  bash "$SCRIPTS_DIR/antenna-test-suite.sh" "$@"
+}
+
 cmd_status() {
   echo "=== Antenna Status ==="
   echo ""
@@ -347,6 +369,8 @@ case "$COMMAND" in
   config)   cmd_config "$@" ;;
   log)      cmd_log "$@" ;;
   status)   cmd_status ;;
+  test)        cmd_test "$@" ;;
+  test-suite)  cmd_test_suite "$@" ;;
   help|-h|--help) usage ;;
   *)
     echo "Unknown command: $COMMAND" >&2
