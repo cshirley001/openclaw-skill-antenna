@@ -1,0 +1,11 @@
+# Runtime files — don't version
+antenna.log
+antenna.log.*
+
+# Secrets — never commit
+**/secrets/
+*.token
+
+# OS junk
+.DS_Store
+Thumbs.db

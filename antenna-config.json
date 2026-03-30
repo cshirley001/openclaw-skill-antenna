@@ -1,0 +1,21 @@
+{
+  "max_message_length": 10000,
+  "default_target_session": "main",
+  "relay_agent_id": "antenna",
+  "relay_agent_model": "mini",
+  "local_agent_id": "betty",
+  "log_enabled": true,
+  "log_path": "antenna.log",
+  "log_max_size_bytes": 10485760,
+  "log_verbose": false,
+  "mcs_enabled": false,
+  "mcs_model": "sonnet",
+  "allowed_inbound_peers": [
+    "bettyxix",
+    "bettyxx"
+  ],
+  "allowed_outbound_peers": [
+    "bettyxix",
+    "bettyxx"
+  ]
+}

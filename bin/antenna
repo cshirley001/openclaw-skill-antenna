@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# antenna — CLI dispatcher for Antenna inter-host messaging.
+#
+# Usage:
+#   antenna send <peer> [options] <message>
+#   antenna peers list | add | remove | test
+#   antenna config show | set <key> <value>
+#   antenna log [--tail <n>] [--since <duration>]
+#   antenna status
+#
+set -euo pipefail
+
+# Resolve symlinks to find real location
+REAL_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+SCRIPTS_DIR="$SKILL_DIR/scripts"
+PEERS_FILE="$SKILL_DIR/antenna-peers.json"
+CONFIG_FILE="$SKILL_DIR/antenna-config.json"
+LOG_FILE="$SKILL_DIR/$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")"
+
+usage() {
+  cat <<'EOF'
+Antenna — Inter-Host OpenClaw Messaging
+
+Usage:
+  antenna send <peer> [options] <message>    Send a message to a peer
+  antenna send <peer> [options] --stdin      Send message from stdin
+  antenna msg <peer> [message]               Quick send (plain host mode by default)
+
+  antenna peers list                         List known peers
+  antenna peers add <id> --url <url> --token-file <path> [--display-name <name>]
+  antenna peers remove <id>
+  antenna peers test <id>                    Test connectivity to a peer
+
+  antenna config show                        Show current configuration
+  antenna config set <key> <value>           Update a config value
+
+  antenna log [--tail <n>]                   View transaction log (default: last 20)
+  antenna log --since <duration>             Show entries from last N minutes/hours
+
+  antenna status                             Overall status summary
+
+Send options:
+  --session <key>     Target session on recipient (default: main)
+  --subject <text>    Optional subject line
+  --user <name>       Optional human sender name (plain host mode is default)
+  --reply-to <url>    Override reply URL
+  --dry-run           Print envelope without sending
+
+Examples:
+  antenna msg bettyxx "Hey sis, what's the weather like over there?"
+  antenna msg bettyxx                      # prompts for message interactively
+  echo "long message" | antenna send bettyxx --stdin --user Corey
+EOF
+  exit 0
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_send() {
+  bash "$SCRIPTS_DIR/antenna-send.sh" "$@"
+}
+
+cmd_msg() {
+  # Quick send: plain/original relay mode by default; prompts if no message
+  local peer="${1:-}"
+  shift || true
+
+  if [[ -z "$peer" ]]; then
+    # If only one remote peer, use it; otherwise list and ask
+    local remote_peers
+    remote_peers=$(jq -r 'to_entries[] | select(.value.self != true) | .key' "$PEERS_FILE" 2>/dev/null)
+    local peer_count
+    peer_count=$(echo "$remote_peers" | grep -c '.' || echo "0")
+
+    if [[ "$peer_count" -eq 1 ]]; then
+      peer="$remote_peers"
+      echo "→ Sending to: $peer"
+    else
+      echo "Available peers:"
+      echo "$remote_peers" | while read -r p; do
+        local dn
+        dn=$(jq -r --arg p "$p" '.[$p].display_name // "—"' "$PEERS_FILE" 2>/dev/null)
+        echo "  $p ($dn)"
+      done
+      echo ""
+      read -rp "Peer: " peer
+    fi
+  fi
+
+  # Parse msg options; stay plain/original unless --user is explicitly supplied.
+  local explicit_user=""
+  local msg_session=""
+  local msg_subject=""
+  local msg_reply_to=""
+  local msg_dry_run=false
+  local positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user) explicit_user="$2"; shift 2 ;;
+      --session) msg_session="$2"; shift 2 ;;
+      --subject) msg_subject="$2"; shift 2 ;;
+      --reply-to) msg_reply_to="$2"; shift 2 ;;
+      --dry-run) msg_dry_run=true; shift ;;
+      -h|--help) usage ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+
+  # Get message from remaining args or prompt
+  local message=""
+  if [[ ${#positional[@]} -gt 0 ]]; then
+    message="${positional[*]}"
+  else
+    echo "Type your message (Ctrl-D or empty line to send):"
+    local line
+    while IFS= read -r line; do
+      [[ -z "$line" && -n "$message" ]] && break
+      if [[ -n "$message" ]]; then
+        message="${message}
+${line}"
+      else
+        message="$line"
+      fi
+    done
+  fi
+
+  if [[ -z "$message" ]]; then
+    echo "No message entered. Cancelled." >&2
+    exit 1
+  fi
+
+  echo ""
+  local send_args=("$peer")
+  [[ -n "$msg_session" ]] && send_args+=(--session "$msg_session")
+  [[ -n "$msg_subject" ]] && send_args+=(--subject "$msg_subject")
+  [[ -n "$msg_reply_to" ]] && send_args+=(--reply-to "$msg_reply_to")
+  [[ "$msg_dry_run" == true ]] && send_args+=(--dry-run)
+
+  if [[ -n "$explicit_user" ]]; then
+    echo "Sending as $explicit_user to $peer..."
+    send_args+=(--user "$explicit_user")
+  else
+    echo "Sending from $(hostname) to $peer..."
+  fi
+
+  send_args+=("$message")
+  bash "$SCRIPTS_DIR/antenna-send.sh" "${send_args[@]}"
+}
+
+cmd_peers() {
+  local subcmd="${1:-list}"
+  shift || true
+
+  case "$subcmd" in
+    list)
+      echo "Known peers:"
+      echo ""
+      jq -r 'to_entries[] | "  \(.key)\(if .value.self then " (self)" else "" end)\n    URL:   \(.value.url)\n    Agent: \(.value.agentId // "antenna")\n    Name:  \(.value.display_name // "—")\n"' "$PEERS_FILE"
+      ;;
+
+    add)
+      local id="" url="" token_file="" display_name=""
+      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path>}"
+      shift
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --url)          url="$2"; shift 2 ;;
+          --token-file)   token_file="$2"; shift 2 ;;
+          --display-name) display_name="$2"; shift 2 ;;
+          *) echo "Unknown option: $1" >&2; exit 1 ;;
+        esac
+      done
+      if [[ -z "$url" || -z "$token_file" ]]; then
+        echo "Error: --url and --token-file are required" >&2; exit 1
+      fi
+      local tmp
+      tmp=$(mktemp)
+      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" \
+        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end)}' \
+        "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
+      echo "Added peer: $id ($url)"
+      ;;
+
+    remove)
+      local id="${1:?Usage: antenna peers remove <id>}"
+      local tmp
+      tmp=$(mktemp)
+      jq --arg id "$id" 'del(.[$id])' "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
+      echo "Removed peer: $id"
+      ;;
+
+    test)
+      local id="${1:?Usage: antenna peers test <id>}"
+      local peer_url token_file token
+      peer_url=$(jq -r --arg p "$id" '.[$p].url // empty' "$PEERS_FILE")
+      token_file=$(jq -r --arg p "$id" '.[$p].token_file // empty' "$PEERS_FILE")
+
+      if [[ -z "$peer_url" ]]; then
+        echo "Unknown peer: $id" >&2; exit 1
+      fi
+
+      token=$(cat "$token_file" 2>/dev/null || echo "")
+      echo "Testing connectivity to $id ($peer_url)..."
+
+      local http_code
+      http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -X POST "${peer_url}/hooks/agent" \
+        -H "Authorization: Bearer ${token}" \
+        -H "Content-Type: application/json" \
+        -d '{"message":"[ANTENNA_PING]","agentId":"antenna","sessionKey":"hook:antenna"}' 2>&1) || {
+        echo "FAILED: Connection error (peer unreachable)"
+        exit 1
+      }
+
+      case "$http_code" in
+        200) echo "OK: Peer responded (HTTP 200)" ;;
+        401|403) echo "AUTH FAILED: Token rejected (HTTP $http_code)" ;;
+        *) echo "UNEXPECTED: HTTP $http_code" ;;
+      esac
+      ;;
+
+    *)
+      echo "Unknown peers subcommand: $subcmd" >&2
+      echo "Usage: antenna peers list|add|remove|test" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_config() {
+  local subcmd="${1:-show}"
+  shift || true
+
+  case "$subcmd" in
+    show)
+      echo "Antenna Configuration ($CONFIG_FILE):"
+      echo ""
+      jq '.' "$CONFIG_FILE"
+      ;;
+
+    set)
+      local key="${1:?Usage: antenna config set <key> <value>}"
+      local value="${2:?Usage: antenna config set <key> <value>}"
+      local tmp
+      tmp=$(mktemp)
+
+      # Try to parse value as JSON (number, bool, array); fall back to string
+      if echo "$value" | jq -e '.' &>/dev/null; then
+        jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp" 2>/dev/null \
+          || jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp"
+      else
+        jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp"
+      fi
+
+      mv "$tmp" "$CONFIG_FILE"
+      echo "Set $key = $value"
+      ;;
+
+    *)
+      echo "Unknown config subcommand: $subcmd" >&2
+      echo "Usage: antenna config show|set" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_log() {
+  local tail_n=20
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail) tail_n="$2"; shift 2 ;;
+      --since)
+        # Simple grep for recent entries — works for minutes/hours
+        local duration="$2"
+        shift 2
+        if [[ ! -f "$LOG_FILE" ]]; then
+          echo "No log file yet."
+          exit 0
+        fi
+        # Just tail for now; full since-filtering is a v0.2 feature
+        echo "(Showing last 50 entries — --since filtering coming in v0.2)"
+        tail -50 "$LOG_FILE"
+        exit 0
+        ;;
+      *) echo "Unknown log option: $1" >&2; exit 1 ;;
+    esac
+  done
+
+  if [[ ! -f "$LOG_FILE" ]]; then
+    echo "No log file yet."
+    exit 0
+  fi
+
+  tail -"$tail_n" "$LOG_FILE"
+}
+
+cmd_status() {
+  echo "=== Antenna Status ==="
+  echo ""
+
+  # Self identity
+  local self_id self_url
+  self_id=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "unknown")
+  self_url=$(jq -r 'to_entries[] | select(.value.self == true) | .value.url // "—"' "$PEERS_FILE" 2>/dev/null || echo "—")
+  echo "Local host: $self_id ($self_url)"
+
+  # Peer count
+  local peer_count
+  peer_count=$(jq 'to_entries | map(select(.value.self != true)) | length' "$PEERS_FILE" 2>/dev/null || echo "0")
+  echo "Remote peers: $peer_count"
+
+  # Config summary
+  local model max_len mcs
+  model=$(jq -r '.relay_agent_model // "mini"' "$CONFIG_FILE" 2>/dev/null || echo "mini")
+  max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
+  mcs=$(jq -r '.mcs_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+  echo "Relay model: $model"
+  echo "Max message: $max_len chars"
+  echo "MCS: $mcs"
+
+  # Log stats
+  if [[ -f "$LOG_FILE" ]]; then
+    local total_lines last_entry
+    total_lines=$(wc -l < "$LOG_FILE")
+    last_entry=$(tail -1 "$LOG_FILE" 2>/dev/null || echo "none")
+    echo ""
+    echo "Log entries: $total_lines"
+    echo "Last entry: $last_entry"
+  else
+    echo ""
+    echo "Log: no entries yet"
+  fi
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+COMMAND="${1:-help}"
+shift || true
+
+case "$COMMAND" in
+  send)     cmd_send "$@" ;;
+  msg)      cmd_msg "$@" ;;
+  peers)    cmd_peers "$@" ;;
+  config)   cmd_config "$@" ;;
+  log)      cmd_log "$@" ;;
+  status)   cmd_status ;;
+  help|-h|--help) usage ;;
+  *)
+    echo "Unknown command: $COMMAND" >&2
+    echo "Run 'antenna help' for usage." >&2
+    exit 1
+    ;;
+esac

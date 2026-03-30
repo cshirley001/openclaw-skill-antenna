@@ -1,0 +1,15 @@
+{
+  "bettyxix": {
+    "url": "https://bettyxix.tailde275c.ts.net",
+    "token_file": "/home/corey/clawd/secrets/hooks_token",
+    "agentId": "antenna",
+    "display_name": "Betty XIX (Server)",
+    "self": true
+  },
+  "bettyxx": {
+    "url": "https://bettyxx-1.tailde275c.ts.net",
+    "token_file": "/home/corey/clawd/secrets/hooks_token",
+    "agentId": "antenna",
+    "display_name": "Betty XX (Laptop)"
+  }
+}
