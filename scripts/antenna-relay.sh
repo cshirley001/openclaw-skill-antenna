@@ -42,6 +42,21 @@ json_malformed() {
     '{action:"reject", status:"malformed", reason:$reason}'
 }
 
+sanitize_log_value() {
+  # Strip newlines, carriage returns, and control characters; truncate to max length
+  local value="$1"
+  local max_len="${2:-200}"
+  # Replace control chars (including newlines/tabs) with spaces
+  value=$(echo "$value" | tr '\n\r\t' '   ' | sed 's/[[:cntrl:]]//g')
+  # Collapse multiple spaces and trim leading/trailing whitespace
+  value=$(echo "$value" | sed 's/  */ /g; s/^ //; s/ $//')
+  # Truncate
+  if [[ ${#value} -gt $max_len ]]; then
+    value="${value:0:$max_len}…"
+  fi
+  echo "$value"
+}
+
 log_entry() {
   local log_enabled log_path
   log_enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
@@ -130,6 +145,15 @@ TARGET_SESSION=$(get_header "target_session")
 TIMESTAMP=$(get_header "timestamp")
 SUBJECT=$(get_header "subject")
 USER_NAME=$(get_header "user")
+
+# ── Sanitize peer-supplied header values for safe logging/processing ────────
+# Strips control chars, newlines, and truncates to prevent log injection.
+FROM=$(sanitize_log_value "$FROM" 64)
+REPLY_TO=$(sanitize_log_value "$REPLY_TO" 256)
+TARGET_SESSION=$(sanitize_log_value "$TARGET_SESSION" 128)
+TIMESTAMP=$(sanitize_log_value "$TIMESTAMP" 32)
+SUBJECT=$(sanitize_log_value "$SUBJECT" 200)
+USER_NAME=$(sanitize_log_value "$USER_NAME" 64)
 
 # ── Validate required fields ────────────────────────────────────────────────
 
@@ -314,7 +338,7 @@ log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:relayed | ch
 # Check if verbose logging is enabled
 LOG_VERBOSE=$(jq -r '.log_verbose // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
 if [[ "$LOG_VERBOSE" == "true" ]]; then
-  PREVIEW="${BODY:0:100}"
+  PREVIEW=$(sanitize_log_value "${BODY:0:100}" 100)
   log_entry "INBOUND  | from:$FROM | preview:${PREVIEW}..."
 fi
 

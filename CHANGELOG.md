@@ -2,6 +2,23 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.7] — 2026-03-30
+
+### Summary
+Token file permission audit in `antenna status` and log value sanitization in the relay script.
+
+### Added
+- **Security audit in `antenna status`:** Checks file permissions on all peer token files, config file, and peers file. Warns if any are too permissive (token files should be 600; config/peers should be 644 or tighter). Also now displays rate limit config and session allowlist in the status output.
+- **Log value sanitization:** All peer-supplied header values (`from`, `target_session`, `subject`, `user`, `timestamp`, `reply_to`) are now sanitized before logging and processing — control characters stripped, newlines removed, values truncated to safe maximum lengths. Prevents log injection and log forgery via crafted envelopes.
+- **`sanitize_log_value` helper** in `antenna-relay.sh`: Strips `\n`, `\r`, `\t`, other control chars; collapses whitespace; trims; truncates to configurable max length.
+
+### Changed
+- `bin/antenna` — `cmd_status()` expanded with rate limit display, session allowlist display, and security audit section.
+- `scripts/antenna-relay.sh` — all header values sanitized immediately after extraction; verbose log preview also sanitized.
+
+### Security
+Addresses Red Team findings #5 (token file exposure) and #6 (log injection/forgery) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+
 ## [1.0.6] — 2026-03-30
 
 ### Summary

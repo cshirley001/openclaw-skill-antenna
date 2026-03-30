@@ -343,6 +343,17 @@ cmd_status() {
   echo "Max message: $max_len chars"
   echo "MCS: $mcs"
 
+  # Rate limit config
+  local rl_peer rl_global
+  rl_peer=$(jq -r '.rate_limit.per_peer_per_minute // 10' "$CONFIG_FILE" 2>/dev/null || echo "10")
+  rl_global=$(jq -r '.rate_limit.global_per_minute // 30' "$CONFIG_FILE" 2>/dev/null || echo "30")
+  echo "Rate limit: ${rl_peer}/min per peer, ${rl_global}/min global"
+
+  # Session allowlist
+  local sessions
+  sessions=$(jq -r '.allowed_inbound_sessions // ["main","antenna"] | join(", ")' "$CONFIG_FILE" 2>/dev/null || echo "main, antenna")
+  echo "Session allowlist: $sessions"
+
   # Log stats
   if [[ -f "$LOG_FILE" ]]; then
     local total_lines last_entry
@@ -354,6 +365,67 @@ cmd_status() {
   else
     echo ""
     echo "Log: no entries yet"
+  fi
+
+  # ── Security: token file permission audit ──
+  echo ""
+  echo "--- Security Audit ---"
+  local warnings=0
+
+  # Check each peer's token file
+  while IFS= read -r peer_id; do
+    [[ -z "$peer_id" ]] && continue
+    local tf
+    tf=$(jq -r --arg p "$peer_id" '.[$p].token_file // empty' "$PEERS_FILE" 2>/dev/null)
+    [[ -z "$tf" ]] && continue
+
+    # Resolve relative paths against skill dir
+    if [[ "$tf" != /* ]]; then
+      tf="$SKILL_DIR/$tf"
+    fi
+
+    if [[ ! -f "$tf" ]]; then
+      echo "  ⚠  $peer_id: token file missing ($tf)"
+      warnings=$((warnings + 1))
+      continue
+    fi
+
+    local perms
+    perms=$(stat -c '%a' "$tf" 2>/dev/null || stat -f '%Lp' "$tf" 2>/dev/null || echo "unknown")
+    if [[ "$perms" == "600" || "$perms" == "400" ]]; then
+      echo "  ✓  $peer_id: token file permissions OK ($perms)"
+    else
+      echo "  ⚠  $peer_id: token file too permissive ($perms) — should be 600"
+      echo "     Fix: chmod 600 $tf"
+      warnings=$((warnings + 1))
+    fi
+  done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
+
+  # Check config file itself
+  if [[ -f "$CONFIG_FILE" ]]; then
+    local cfg_perms
+    cfg_perms=$(stat -c '%a' "$CONFIG_FILE" 2>/dev/null || stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$cfg_perms" != "600" && "$cfg_perms" != "644" && "$cfg_perms" != "640" && "$cfg_perms" != "400" ]]; then
+      echo "  ⚠  config file too permissive ($cfg_perms) — recommend 644 or 600"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  # Check peers file
+  if [[ -f "$PEERS_FILE" ]]; then
+    local peers_perms
+    peers_perms=$(stat -c '%a' "$PEERS_FILE" 2>/dev/null || stat -f '%Lp' "$PEERS_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$peers_perms" != "600" && "$peers_perms" != "644" && "$peers_perms" != "640" && "$peers_perms" != "400" ]]; then
+      echo "  ⚠  peers file too permissive ($peers_perms) — recommend 644 or 600"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if [[ "$warnings" -eq 0 ]]; then
+    echo "  ✓  All file permissions OK"
+  else
+    echo ""
+    echo "  $warnings warning(s) — review above"
   fi
 }
 
