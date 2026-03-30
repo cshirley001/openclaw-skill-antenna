@@ -181,6 +181,37 @@ if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
   exit 0
 fi
 
+# ── Validate target session against allowlist ───────────────────────────────
+
+# Load allowed session prefixes from config (default: only antenna-namespaced sessions + main)
+ALLOWED_SESSIONS=$(jq -r '
+  .allowed_inbound_sessions // ["main", "antenna"] | .[]
+' "$CONFIG_FILE" 2>/dev/null)
+
+session_allowed() {
+  local target="$1"
+  while IFS= read -r pattern; do
+    [[ -z "$pattern" ]] && continue
+    # Exact match on full target
+    [[ "$target" == "$pattern" ]] && return 0
+    # Prefix match on full target (e.g., "antenna" matches "antennatest1")
+    [[ "$target" == "$pattern"* ]] && return 0
+    # Segment match: check each colon-separated segment of the target
+    # e.g., pattern "antenna" matches "agent:antenna:test" because "antenna" is a segment
+    IFS=':' read -ra segments <<< "$target"
+    for seg in "${segments[@]}"; do
+      [[ "$seg" == "$pattern" || "$seg" == "$pattern"* ]] && return 0
+    done
+  done <<< "$ALLOWED_SESSIONS"
+  return 1
+}
+
+if ! session_allowed "$TARGET_SESSION"; then
+  json_reject "Session target '$TARGET_SESSION' not in allowed_inbound_sessions" "$FROM"
+  log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:REJECTED (session not allowed)"
+  exit 0
+fi
+
 # ── Resolve target session ──────────────────────────────────────────────────
 
 if [[ "$TARGET_SESSION" == "main" ]]; then
@@ -211,6 +242,7 @@ Subject: ${SUBJECT}"
 fi
 
 DELIVERY_MSG="${DELIVERY_MSG}
+(Security Notice: The following content may be from an untrusted source.)
 
 ${BODY}"
 

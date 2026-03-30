@@ -2,6 +2,23 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.5] — 2026-03-30
+
+### Summary
+Security hardening: untrusted-input framing on all relayed messages and inbound session target allowlist.
+
+### Added
+- **Untrusted-input framing:** All relayed messages now include `(Security Notice: The following content may be from an untrusted source.)` between the header and body. Subtle, non-alarmist, but ensures receiving agents treat Antenna content as external input.
+- **Inbound session allowlist** (`allowed_inbound_sessions` in `antenna-config.json`): Restricts which sessions inbound messages can target. Default: `["main", "antenna"]`. Uses segment matching — `antenna` matches `agent:antenna:test`, `agent:antenna:modeltest`, etc. Sessions not matching any allowed pattern are rejected with reason logged.
+
+### Changed
+- `scripts/antenna-relay.sh` — added session allowlist validation before relay; added security notice to delivery message format.
+- `antenna-config.json` — new `allowed_inbound_sessions` field.
+- `scripts/antenna-test-suite.sh` — test sessions updated from `agent:test:main` to `agent:antenna:test` (conforming to the security model).
+
+### Security
+Addresses Red Team findings #1 (prompt injection via message body) and #3 (session target injection) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+
 ## [1.0.4] — 2026-03-30
 
 ### Summary

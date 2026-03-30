@@ -11,6 +11,10 @@
   "log_verbose": false,
   "mcs_enabled": false,
   "mcs_model": "sonnet",
+  "allowed_inbound_sessions": [
+    "main",
+    "antenna"
+  ],
   "allowed_inbound_peers": [
     "bettyxix",
     "bettyxx"

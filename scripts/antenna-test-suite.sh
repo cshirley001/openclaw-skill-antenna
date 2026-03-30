@@ -545,7 +545,7 @@ run_tier_a() {
   # ── A.1: Valid envelope → relay ok ──
   local valid_envelope="[ANTENNA_RELAY]
 from: ${SELF_PEER}
-target_session: agent:test:main
+target_session: agent:antenna:test
 timestamp: 2026-01-01T00:00:00Z
 
 Hello, this is a test message.
@@ -557,7 +557,7 @@ Hello, this is a test message.
   status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
   session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
 
-  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:test:main" ]]; then
+  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:antenna:test" ]]; then
     pass "A.1" "Valid envelope → relay/ok with correct session"
   else
     fail "A.1" "Valid envelope → relay/ok" "Got action=$action status=$status session=$session_key"
@@ -664,7 +664,7 @@ Missing close marker"
   # ── A.8: User header in delivery message ──
   local user_env="[ANTENNA_RELAY]
 from: ${SELF_PEER}
-target_session: agent:test:main
+target_session: agent:antenna:test
 timestamp: 2026-01-01T00:00:00Z
 user: TestUser
 
@@ -728,7 +728,7 @@ run_tier_b() {
 
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
-target_session: agent:test:main
+target_session: agent:antenna:test
 timestamp: ${test_ts}
 
 [Antenna Test Suite — Tier B]
@@ -865,7 +865,7 @@ run_tier_c() {
 
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
-target_session: agent:test:main
+target_session: agent:antenna:test
 timestamp: ${test_ts}
 
 [Antenna Test Suite — Tier C]
@@ -885,7 +885,7 @@ This is an automated relay compatibility test verifying that ${model} correctly 
     '{
       action: "relay",
       status: "ok",
-      sessionKey: "agent:test:main",
+      sessionKey: "agent:antenna:test",
       message: $msg,
       from: "testhost",
       timestamp: $ts,
@@ -1044,10 +1044,10 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   # C.3: Correct sessionKey
   local send_session
   send_session=$(echo "$send_args" | jq -r '.sessionKey // ""' 2>/dev/null)
-  if [[ "$send_session" == "agent:test:main" ]]; then
-    pass "C.3" "sessionKey matches (agent:test:main)" "$model"
+  if [[ "$send_session" == "agent:antenna:test" ]]; then
+    pass "C.3" "sessionKey matches (agent:antenna:test)" "$model"
   else
-    fail "C.3" "sessionKey matches" "Expected 'agent:test:main', got '$send_session'" "$model"
+    fail "C.3" "sessionKey matches" "Expected 'agent:antenna:test', got '$send_session'" "$model"
   fi
 
   # C.4: Message includes relay content
