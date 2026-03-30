@@ -2,6 +2,35 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.4] — 2026-03-30
+
+### Summary
+Added native Anthropic and Google Gemini API support to the test suite.
+
+### Added
+- **Anthropic Messages API support** (`anthropic/*` models) — native tool schema (`input_schema`), `tool_use`/`tool_result` multi-turn for Tier C, `x-api-key` + `anthropic-version` auth headers
+- **Google Gemini API support** (`google/*` models) — native tool schema (`functionDeclarations`), `functionCall`/`functionResponse` multi-turn for Tier C, key-based auth via `generateContent` endpoint
+- Provider-specific tool definition blocks: `TOOLS_ANTHROPIC`, `TOOLS_GOOGLE` (alongside existing OpenAI-format `TOOLS_JSON`)
+- Unified `call_model_api` dispatcher that normalizes all provider responses to a common shape (`http_code`, `elapsed_ms`, `first_tool_name`, `first_tool_args`, `raw`)
+- Provider format tag (4th field) in `resolve_model_api` output: `openai`, `anthropic`, or `google`
+
+### Changed
+- `run_tier_b()` and `run_tier_c()` rewritten to use unified dispatcher — provider-agnostic assertions
+- `check_model_api()` updated to parse 4-field pipe format
+
+### Tested
+- `anthropic/claude-sonnet-4-20250514`: 8/8 suite, live smoke PASS (9.3s)
+- `google/gemini-2.5-flash`: 8/8 suite, live smoke PASS (~2min — arrives correctly but the hook→agent pipeline is slower; use `--timeout 90`+ for live smoke tests with Gemini)
+
+### Supported providers (Tier B/C) — now 7 families
+- OpenAI (`openai/*`)
+- OpenAI Codex (`openai-codex/*`)
+- OpenRouter (`openrouter/*`)
+- Nvidia NIM (`nvidia/*`)
+- Ollama (`ollama/*`)
+- **Anthropic** (`anthropic/*`) — NEW
+- **Google Gemini** (`google/*`) — NEW
+
 ## [1.0.3] — 2026-03-30
 
 ### Summary
@@ -33,13 +62,13 @@ Three-tier test suite with multi-model comparison, structured reports, and multi
 - CLI wiring: `antenna test-suite [options]`
 - `.gitignore` updated to exclude `test-results/`
 
-### Supported providers (Tier B/C)
+### Supported providers (Tier B/C) at time of release
 - OpenAI (`openai/*`)
 - OpenAI Codex (`openai-codex/*`)
 - OpenRouter (`openrouter/*`)
 - Nvidia NIM (`nvidia/*`)
 - Ollama (`ollama/*` — local models)
-- Anthropic and Google: planned but not yet adapted
+- (Anthropic and Google added in v1.0.4)
 
 ### Note
 The existing `antenna test` self-loop integration tester remains available as a smoke/end-to-end test. The new `antenna test-suite` is the primary model compatibility evaluator.

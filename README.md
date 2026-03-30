@@ -59,7 +59,7 @@ antenna-send.sh                         /hooks/agent endpoint
 
 ## Testing
 
-Built-in three-tier test suite to validate relay script correctness and model compatibility:
+Built-in three-tier test suite to validate relay script correctness and model compatibility across 7 provider families (OpenAI, OpenAI Codex, OpenRouter, Nvidia NIM, Ollama, Anthropic, Google Gemini):
 
 ```bash
 # Script-only validation (no model, no network)
@@ -69,10 +69,10 @@ antenna test-suite --tier A
 antenna test-suite --model openai/gpt-5.4
 
 # Compare multiple models side-by-side (max 6)
-antenna test-suite --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex"
+antenna test-suite --models "anthropic/claude-sonnet-4-20250514,google/gemini-2.5-flash,openai/gpt-5.4"
 
 # Save structured report with request/response dumps
-antenna test-suite --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex" --report
+antenna test-suite --models "anthropic/claude-sonnet-4-20250514,google/gemini-2.5-flash" --report
 ```
 
 | Tier | Tests | What it checks |
@@ -80,6 +80,8 @@ antenna test-suite --models "openai/gpt-5.4,openrouter/openai/gpt-5.2-codex" --r
 | A | 8 | Relay script parsing, validation, rejection, session mapping |
 | B | 4 | Model correctly calls `exec` with relay script and envelope |
 | C | 4 | Model correctly calls `sessions_send` with relay output |
+
+Each provider uses its **native API format** — Anthropic's Messages API, Google's generateContent, OpenAI-compatible chat/completions — with provider-specific tool schemas and multi-turn conventions.
 
 ## Security
 
@@ -99,7 +101,7 @@ No hardcoded defaults assume a particular host, user, or model. See `SKILL.md` f
 
 ## Version
 
-**1.0.2** — Test suite with multi-model comparison and structured reports.
+**1.0.4** — Anthropic + Google Gemini native API support in test suite (7 provider families).
 
 ## License
 

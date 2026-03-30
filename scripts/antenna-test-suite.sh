@@ -177,25 +177,25 @@ resolve_model_api() {
 
   case "$provider" in
     openai)
-      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}"
+      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}|openai"
       ;;
     openai-codex)
-      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}"
+      echo "https://api.openai.com/v1|${OPENAI_API_KEY:-}|${model_name}|openai"
       ;;
     openrouter)
-      echo "https://openrouter.ai/api/v1|${OPENROUTER_API_KEY:-${OR_API_KEY:-}}|${model#openrouter/}"
+      echo "https://openrouter.ai/api/v1|${OPENROUTER_API_KEY:-${OR_API_KEY:-}}|${model#openrouter/}|openai"
       ;;
     anthropic)
-      echo "UNSUPPORTED"
+      echo "https://api.anthropic.com/v1/messages|${ANTHROPIC_API_KEY:-}|${model_name}|anthropic"
       ;;
     ollama)
-      echo "http://127.0.0.1:11434/v1|ollama|${model_name}"
+      echo "http://127.0.0.1:11434/v1|ollama|${model_name}|openai"
       ;;
     google)
-      echo "UNSUPPORTED"
+      echo "https://generativelanguage.googleapis.com/v1beta|${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}|${model_name}|google"
       ;;
     nvidia)
-      echo "https://integrate.api.nvidia.com/v1|${NVIDIA_API_KEY:-${NIM_API_KEY:-}}|${model#nvidia/}"
+      echo "https://integrate.api.nvidia.com/v1|${NVIDIA_API_KEY:-${NIM_API_KEY:-}}|${model#nvidia/}|openai"
       ;;
     *)
       echo "UNSUPPORTED"
@@ -210,7 +210,7 @@ check_model_api() {
     return
   fi
   local api_key
-  IFS='|' read -r _ api_key _ <<< "$api_info"
+  IFS='|' read -r _ api_key _ _ <<< "$api_info"
   if [[ -z "$api_key" ]]; then
     echo "no_key"
     return
@@ -218,7 +218,14 @@ check_model_api() {
   echo "ok"
 }
 
-# ── Tool definitions ─────────────────────────────────────────────────────────
+get_provider_format() {
+  local api_info="$1"
+  local fmt
+  IFS='|' read -r _ _ _ fmt <<< "$api_info"
+  echo "${fmt:-openai}"
+}
+
+# ── Tool definitions (OpenAI format) ─────────────────────────────────────────
 
 TOOLS_JSON='[
   {
@@ -252,6 +259,269 @@ TOOLS_JSON='[
     }
   }
 ]'
+
+# ── Tool definitions (Anthropic format) ──────────────────────────────────────
+
+TOOLS_ANTHROPIC='[
+  {
+    "name": "exec",
+    "description": "Execute a shell command",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "command": {"type": "string", "description": "Shell command to execute"}
+      },
+      "required": ["command"]
+    }
+  },
+  {
+    "name": "sessions_send",
+    "description": "Send a message to a session",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "sessionKey": {"type": "string", "description": "Target session key"},
+        "message": {"type": "string", "description": "Message to send"},
+        "timeoutSeconds": {"type": "number", "description": "Timeout in seconds"}
+      },
+      "required": ["sessionKey", "message"]
+    }
+  }
+]'
+
+# ── Tool definitions (Google Gemini format) ──────────────────────────────────
+
+TOOLS_GOOGLE='[
+  {
+    "functionDeclarations": [
+      {
+        "name": "exec",
+        "description": "Execute a shell command",
+        "parameters": {
+          "type": "OBJECT",
+          "properties": {
+            "command": {"type": "STRING", "description": "Shell command to execute"}
+          },
+          "required": ["command"]
+        }
+      },
+      {
+        "name": "sessions_send",
+        "description": "Send a message to a session",
+        "parameters": {
+          "type": "OBJECT",
+          "properties": {
+            "sessionKey": {"type": "STRING", "description": "Target session key"},
+            "message": {"type": "STRING", "description": "Message to send"},
+            "timeoutSeconds": {"type": "NUMBER", "description": "Timeout in seconds"}
+          },
+          "required": ["sessionKey", "message"]
+        }
+      }
+    ]
+  }
+]'
+
+# ── Provider API call helpers ────────────────────────────────────────────────
+# Each returns a normalized JSON object:
+#   { "http_code": N, "first_tool_name": "...", "first_tool_args": "...", "raw": "..." }
+# This lets Tier B/C assertions stay provider-agnostic.
+
+call_anthropic_api() {
+  local base_url="$1" api_key="$2" model_name="$3" request_body_json="$4"
+  # Build Anthropic request from our normalized inputs
+  local system_prompt user_msg extra_messages
+  system_prompt=$(echo "$request_body_json" | jq -r '.system // ""')
+  user_msg=$(echo "$request_body_json" | jq -r '.user_message')
+  extra_messages=$(echo "$request_body_json" | jq -c '.extra_messages // []')
+
+  local messages
+  if [[ "$extra_messages" != "[]" && "$extra_messages" != "null" ]]; then
+    # Tier C: include assistant turn + tool result
+    messages=$(jq -n \
+      --arg user_msg "$user_msg" \
+      --argjson extra "$extra_messages" \
+      '[{"role":"user","content":$user_msg}] + $extra')
+  else
+    messages=$(jq -n --arg user_msg "$user_msg" '[{"role":"user","content":$user_msg}]')
+  fi
+
+  local body
+  body=$(jq -n \
+    --arg model "$model_name" \
+    --arg system "$system_prompt" \
+    --argjson messages "$messages" \
+    --argjson tools "$TOOLS_ANTHROPIC" \
+    '{
+      model: $model,
+      max_tokens: 4096,
+      system: $system,
+      messages: $messages,
+      tools: $tools,
+      tool_choice: {"type": "auto"}
+    }')
+
+  local start_time response http_code elapsed
+  start_time=$(date +%s%N)
+
+  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
+    -X POST "$base_url" \
+    -H "Content-Type: application/json" \
+    -H "x-api-key: $api_key" \
+    -H "anthropic-version: 2023-06-01" \
+    -d "$body" \
+    --max-time 60 2>&1)
+
+  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
+  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
+  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
+
+  # Normalize: find first tool_use block in content array
+  local tool_name tool_args
+  tool_name=$(echo "$response" | jq -r '[.content[]? | select(.type=="tool_use")][0].name // ""' 2>/dev/null)
+  tool_args=$(echo "$response" | jq -c '[.content[]? | select(.type=="tool_use")][0].input // {}' 2>/dev/null)
+  local tool_id
+  tool_id=$(echo "$response" | jq -r '[.content[]? | select(.type=="tool_use")][0].id // ""' 2>/dev/null)
+
+  jq -n \
+    --arg http_code "$http_code" \
+    --arg elapsed "$elapsed" \
+    --arg tool_name "$tool_name" \
+    --arg tool_args "$tool_args" \
+    --arg tool_id "$tool_id" \
+    --arg raw "$response" \
+    --arg request "$body" \
+    '{
+      http_code: ($http_code | tonumber),
+      elapsed_ms: ($elapsed | tonumber),
+      first_tool_name: $tool_name,
+      first_tool_args: $tool_args,
+      first_tool_id: $tool_id,
+      raw: $raw,
+      request: $request
+    }'
+}
+
+call_google_api() {
+  local base_url="$1" api_key="$2" model_name="$3" request_body_json="$4"
+  local system_prompt user_msg extra_contents
+  system_prompt=$(echo "$request_body_json" | jq -r '.system // ""')
+  user_msg=$(echo "$request_body_json" | jq -r '.user_message')
+  extra_contents=$(echo "$request_body_json" | jq -c '.extra_google_contents // []')
+
+  local contents
+  if [[ "$extra_contents" != "[]" && "$extra_contents" != "null" ]]; then
+    contents=$(jq -n \
+      --arg user_msg "$user_msg" \
+      --argjson extra "$extra_contents" \
+      '[{"role":"user","parts":[{"text":$user_msg}]}] + $extra')
+  else
+    contents=$(jq -n --arg user_msg "$user_msg" '[{"role":"user","parts":[{"text":$user_msg}]}]')
+  fi
+
+  local body
+  body=$(jq -n \
+    --arg system "$system_prompt" \
+    --argjson contents "$contents" \
+    --argjson tools "$TOOLS_GOOGLE" \
+    '{
+      system_instruction: {"parts": [{"text": $system}]},
+      contents: $contents,
+      tools: $tools,
+      tool_config: {"function_calling_config": {"mode": "AUTO"}}
+    }')
+
+  local url="${base_url}/models/${model_name}:generateContent?key=${api_key}"
+
+  local start_time response http_code elapsed
+  start_time=$(date +%s%N)
+
+  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
+    -X POST "$url" \
+    -H "Content-Type: application/json" \
+    -d "$body" \
+    --max-time 60 2>&1)
+
+  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
+  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
+  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
+
+  # Normalize: Gemini puts function calls in candidates[0].content.parts[].functionCall
+  local tool_name tool_args
+  tool_name=$(echo "$response" | jq -r '[.candidates[0].content.parts[]? | select(.functionCall) | .functionCall.name][0] // ""' 2>/dev/null)
+  tool_args=$(echo "$response" | jq -c '[.candidates[0].content.parts[]? | select(.functionCall) | .functionCall.args][0] // {}' 2>/dev/null)
+
+  jq -n \
+    --arg http_code "$http_code" \
+    --arg elapsed "$elapsed" \
+    --arg tool_name "$tool_name" \
+    --arg tool_args "$tool_args" \
+    --arg tool_id "" \
+    --arg raw "$response" \
+    --arg request "$body" \
+    '{
+      http_code: ($http_code | tonumber),
+      elapsed_ms: ($elapsed | tonumber),
+      first_tool_name: $tool_name,
+      first_tool_args: $tool_args,
+      first_tool_id: "",
+      raw: $raw,
+      request: $request
+    }'
+}
+
+call_openai_api() {
+  local base_url="$1" api_key="$2" model_name="$3" request_body="$4"
+  # request_body is already the full OpenAI-format JSON
+
+  local start_time response http_code elapsed
+  start_time=$(date +%s%N)
+
+  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
+    -X POST "$base_url/chat/completions" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $api_key" \
+    -d "$request_body" \
+    --max-time 30 2>&1)
+
+  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
+  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
+  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
+
+  local tool_name tool_args tool_id
+  tool_name=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.name // ""' 2>/dev/null)
+  tool_args=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.arguments // ""' 2>/dev/null)
+  tool_id=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].id // ""' 2>/dev/null)
+
+  jq -n \
+    --arg http_code "$http_code" \
+    --arg elapsed "$elapsed" \
+    --arg tool_name "$tool_name" \
+    --arg tool_args "$tool_args" \
+    --arg tool_id "$tool_id" \
+    --arg raw "$response" \
+    --arg request "$request_body" \
+    '{
+      http_code: ($http_code | tonumber),
+      elapsed_ms: ($elapsed | tonumber),
+      first_tool_name: $tool_name,
+      first_tool_args: $tool_args,
+      first_tool_id: $tool_id,
+      raw: $raw,
+      request: $request
+    }'
+}
+
+# Unified dispatcher
+call_model_api() {
+  local format="$1" base_url="$2" api_key="$3" model_name="$4" request_json="$5"
+  case "$format" in
+    anthropic) call_anthropic_api "$base_url" "$api_key" "$model_name" "$request_json" ;;
+    google)    call_google_api "$base_url" "$api_key" "$model_name" "$request_json" ;;
+    openai)    call_openai_api "$base_url" "$api_key" "$model_name" "$request_json" ;;
+    *)         echo '{"http_code":0,"elapsed_ms":0,"first_tool_name":"","first_tool_args":"","raw":"unsupported format"}' ;;
+  esac
+}
 
 # ── Self peer ────────────────────────────────────────────────────────────────
 
@@ -446,8 +716,9 @@ run_tier_b() {
     return
   fi
 
-  local base_url api_key model_name
-  IFS='|' read -r base_url api_key model_name <<< "$api_info"
+  local base_url api_key model_name fmt
+  IFS='|' read -r base_url api_key model_name fmt <<< "$api_info"
+  fmt="${fmt:-openai}"
 
   local system_prompt
   system_prompt=$(cat "$AGENT_INSTRUCTIONS")
@@ -468,50 +739,53 @@ test_time: ${test_ts}
 This is an automated relay compatibility test verifying that ${model} correctly invokes the relay script when receiving an inbound envelope.
 [/ANTENNA_RELAY]"
 
-  local request_body
-  request_body=$(jq -n \
-    --arg model "$model_name" \
-    --arg system "$system_prompt" \
-    --arg user "$test_message" \
-    --argjson tools "$TOOLS_JSON" \
-    '{
-      model: $model,
-      messages: [
-        {role: "system", content: $system},
-        {role: "user", content: $user}
-      ],
-      tools: $tools,
-      temperature: 0
-    }')
+  # Build request based on provider format
+  local request_input result
+  if [[ "$fmt" == "openai" ]]; then
+    request_input=$(jq -n \
+      --arg model "$model_name" \
+      --arg system "$system_prompt" \
+      --arg user "$test_message" \
+      --argjson tools "$TOOLS_JSON" \
+      '{
+        model: $model,
+        messages: [
+          {role: "system", content: $system},
+          {role: "user", content: $user}
+        ],
+        tools: $tools,
+        temperature: 0
+      }')
+  else
+    # Anthropic/Google: pass normalized input for the helper to build
+    request_input=$(jq -n \
+      --arg system "$system_prompt" \
+      --arg user_message "$test_message" \
+      '{ system: $system, user_message: $user_message }')
+  fi
 
-  RAW_REQUESTS["${model}:B"]="$request_body"
+  verbose_out "Calling ${fmt} API at ${base_url}..."
 
-  verbose_out "Calling $base_url/chat/completions..."
+  result=$(call_model_api "$fmt" "$base_url" "$api_key" "$model_name" "$request_input")
 
-  local start_time response http_code elapsed
-  start_time=$(date +%s%N)
+  local http_code elapsed tool_name tool_args raw_response raw_request
+  http_code=$(echo "$result" | jq -r '.http_code')
+  elapsed=$(echo "$result" | jq -r '.elapsed_ms')
+  tool_name=$(echo "$result" | jq -r '.first_tool_name')
+  tool_args=$(echo "$result" | jq -r '.first_tool_args')
+  raw_response=$(echo "$result" | jq -r '.raw')
+  raw_request=$(echo "$result" | jq -r '.request')
 
-  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
-    -X POST "$base_url/chat/completions" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $api_key" \
-    -d "$request_body" \
-    --max-time 30 2>&1)
-
-  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
-
-  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
-  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
-
-  RAW_RESPONSES["${model}:B"]="$response"
+  RAW_REQUESTS["${model}:B"]="$raw_request"
+  RAW_RESPONSES["${model}:B"]="$raw_response"
 
   verbose_out "HTTP $http_code (${elapsed}ms)"
-  verbose_out "Response: $(echo "$response" | jq -c '.choices[0].message' 2>/dev/null | head -c 200)"
+  verbose_out "Tool: ${tool_name} | Args: $(echo "$tool_args" | head -c 200)"
 
   # B.1: API success
   if [[ "$http_code" != "200" ]]; then
     local err_msg
-    err_msg=$(echo "$response" | jq -r '.error.message // "unknown"' 2>/dev/null || echo "HTTP $http_code")
+    err_msg=$(echo "$raw_response" | jq -r '.error.message // .error.type // "unknown"' 2>/dev/null || echo "HTTP $http_code")
     fail "B.1" "API call" "HTTP $http_code: $err_msg" "$model"
     skip "B.2" "Tool call name" "Skipped (API failed)" "$model"
     skip "B.3" "Relay script ref" "Skipped (API failed)" "$model"
@@ -521,30 +795,23 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   pass "B.1" "API call succeeded (${elapsed}ms)" "$model"
 
   # B.2: Tool call present and is exec
-  local tool_calls first_tool
-  tool_calls=$(echo "$response" | jq -r '.choices[0].message.tool_calls // empty' 2>/dev/null)
-  if [[ -z "$tool_calls" || "$tool_calls" == "null" ]]; then
-    local content
-    content=$(echo "$response" | jq -r '.choices[0].message.content // ""' 2>/dev/null)
-    fail "B.1" "Produced tool call" "Model returned text instead of tool call" "$model"
-    verbose_out "Content: $(echo "$content" | head -c 200)"
+  if [[ -z "$tool_name" || "$tool_name" == "null" ]]; then
+    fail "B.2" "Produced tool call" "Model returned text instead of tool call" "$model"
     skip "B.2" "Tool call name" "No tool call" "$model"
     skip "B.3" "Relay script ref" "No tool call" "$model"
     skip "B.4" "Envelope content" "No tool call" "$model"
     return
   fi
 
-  first_tool=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.name // ""' 2>/dev/null)
-  if [[ "$first_tool" == "exec" ]]; then
+  if [[ "$tool_name" == "exec" ]]; then
     pass "B.2" "First tool call is 'exec'" "$model"
   else
-    fail "B.2" "First tool call is 'exec'" "Got '$first_tool'" "$model"
+    fail "B.2" "First tool call is 'exec'" "Got '$tool_name'" "$model"
   fi
 
   # B.3: References relay script
-  local exec_args exec_command
-  exec_args=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.arguments // ""' 2>/dev/null)
-  exec_command=$(echo "$exec_args" | jq -r '.command // ""' 2>/dev/null)
+  local exec_command
+  exec_command=$(echo "$tool_args" | jq -r '.command // ""' 2>/dev/null)
   if echo "$exec_command" | grep -q "antenna-relay\|relay\.sh"; then
     pass "B.3" "Command references relay script" "$model"
   else
@@ -584,8 +851,9 @@ run_tier_c() {
     return
   fi
 
-  local base_url api_key model_name
-  IFS='|' read -r base_url api_key model_name <<< "$api_info"
+  local base_url api_key model_name fmt
+  IFS='|' read -r base_url api_key model_name fmt <<< "$api_info"
+  fmt="${fmt:-openai}"
 
   local system_prompt
   system_prompt=$(cat "$AGENT_INSTRUCTIONS")
@@ -625,64 +893,130 @@ This is an automated relay compatibility test verifying that ${model} correctly 
     }' | jq -c .)
 
   local tool_call_id="call_test_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+  local exec_command="echo \"${test_message}\" | bash ./scripts/antenna-relay.sh --stdin"
 
-  local request_body
-  request_body=$(jq -n \
-    --arg model "$model_name" \
-    --arg system "$system_prompt" \
-    --arg user_msg "$test_message" \
-    --arg tool_call_id "$tool_call_id" \
-    --arg tool_result "$simulated_result" \
-    --argjson tools "$TOOLS_JSON" \
-    '{
-      model: $model,
-      messages: [
-        {role: "system", content: $system},
-        {role: "user", content: $user_msg},
-        {role: "assistant", content: null, tool_calls: [
-          {
-            id: $tool_call_id,
-            type: "function",
-            function: {
-              name: "exec",
-              arguments: ("{\"command\": \"echo \\\"" + $user_msg + "\\\" | bash ./scripts/antenna-relay.sh --stdin\"}")
+  local request_input result
+  if [[ "$fmt" == "openai" ]]; then
+    request_input=$(jq -n \
+      --arg model "$model_name" \
+      --arg system "$system_prompt" \
+      --arg user_msg "$test_message" \
+      --arg tool_call_id "$tool_call_id" \
+      --arg tool_result "$simulated_result" \
+      --arg exec_command "$exec_command" \
+      --argjson tools "$TOOLS_JSON" \
+      '{
+        model: $model,
+        messages: [
+          {role: "system", content: $system},
+          {role: "user", content: $user_msg},
+          {role: "assistant", content: null, tool_calls: [
+            {
+              id: $tool_call_id,
+              type: "function",
+              function: {
+                name: "exec",
+                arguments: ({command: $exec_command} | tostring)
+              }
             }
+          ]},
+          {role: "tool", tool_call_id: $tool_call_id, content: $tool_result}
+        ],
+        tools: $tools,
+        temperature: 0
+      }')
+  elif [[ "$fmt" == "anthropic" ]]; then
+    request_input=$(jq -n \
+      --arg system "$system_prompt" \
+      --arg user_message "$test_message" \
+      --arg tool_call_id "$tool_call_id" \
+      --arg exec_command "$exec_command" \
+      --arg tool_result "$simulated_result" \
+      '{
+        system: $system,
+        user_message: $user_message,
+        extra_messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: $tool_call_id,
+                name: "exec",
+                input: {command: $exec_command}
+              }
+            ]
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: $tool_call_id,
+                content: $tool_result
+              }
+            ]
           }
-        ]},
-        {role: "tool", tool_call_id: $tool_call_id, content: $tool_result}
-      ],
-      tools: $tools,
-      temperature: 0
-    }')
+        ]
+      }')
+  else
+    request_input=$(jq -n \
+      --arg system "$system_prompt" \
+      --arg user_message "$test_message" \
+      --arg exec_command "$exec_command" \
+      --argjson sim_result "$simulated_result" \
+      '{
+        system: $system,
+        user_message: $user_message,
+        extra_google_contents: [
+          {
+            role: "model",
+            parts: [
+              {
+                functionCall: {
+                  name: "exec",
+                  args: {command: $exec_command}
+                }
+              }
+            ]
+          },
+          {
+            role: "user",
+            parts: [
+              {
+                functionResponse: {
+                  name: "exec",
+                  response: $sim_result
+                }
+              }
+            ]
+          }
+        ]
+      }')
+  fi
 
-  RAW_REQUESTS["${model}:C"]="$request_body"
+  verbose_out "Calling ${fmt} API at ${base_url}..."
 
-  verbose_out "Calling $base_url/chat/completions..."
+  result=$(call_model_api "$fmt" "$base_url" "$api_key" "$model_name" "$request_input")
 
-  local start_time response http_code elapsed
-  start_time=$(date +%s%N)
+  local http_code elapsed tool_name send_args raw_response raw_request
+  http_code=$(echo "$result" | jq -r '.http_code')
+  elapsed=$(echo "$result" | jq -r '.elapsed_ms')
+  tool_name=$(echo "$result" | jq -r '.first_tool_name')
+  send_args=$(echo "$result" | jq -r '.first_tool_args')
+  raw_response=$(echo "$result" | jq -r '.raw')
+  raw_request=$(echo "$result" | jq -r '.request')
 
-  response=$(curl -s -w "\n__HTTP_CODE__%{http_code}" \
-    -X POST "$base_url/chat/completions" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $api_key" \
-    -d "$request_body" \
-    --max-time 30 2>&1)
-
-  elapsed=$(( ($(date +%s%N) - start_time) / 1000000 ))
-
-  http_code=$(echo "$response" | grep "__HTTP_CODE__" | sed 's/__HTTP_CODE__//')
-  response=$(echo "$response" | sed '/__HTTP_CODE__/d')
-
-  RAW_RESPONSES["${model}:C"]="$response"
+  RAW_REQUESTS["${model}:C"]="$raw_request"
+  RAW_RESPONSES["${model}:C"]="$raw_response"
 
   verbose_out "HTTP $http_code (${elapsed}ms)"
-  verbose_out "Response: $(echo "$response" | jq -c '.choices[0].message' 2>/dev/null | head -c 200)"
+  verbose_out "Tool: ${tool_name} | Args: $(echo "$send_args" | head -c 200)"
 
   # C.1: API success + tool call present
   if [[ "$http_code" != "200" ]]; then
     local err_msg
-    err_msg=$(echo "$response" | jq -r '.error.message // "unknown"' 2>/dev/null || echo "HTTP $http_code")
+    err_msg=$(echo "$raw_response" | jq -r '.error.message // .error.type // "unknown"' 2>/dev/null || echo "HTTP $http_code")
     fail "C.1" "API call" "HTTP $http_code: $err_msg" "$model"
     skip "C.2" "Tool call name" "Skipped (API failed)" "$model"
     skip "C.3" "sessionKey match" "Skipped" "$model"
@@ -690,13 +1024,8 @@ This is an automated relay compatibility test verifying that ${model} correctly 
     return
   fi
 
-  local tool_calls
-  tool_calls=$(echo "$response" | jq -r '.choices[0].message.tool_calls // empty' 2>/dev/null)
-  if [[ -z "$tool_calls" || "$tool_calls" == "null" ]]; then
-    local content
-    content=$(echo "$response" | jq -r '.choices[0].message.content // ""' 2>/dev/null)
+  if [[ -z "$tool_name" || "$tool_name" == "null" ]]; then
     fail "C.1" "Produced tool call" "Model returned text instead of tool call" "$model"
-    verbose_out "Content: $(echo "$content" | head -c 200)"
     skip "C.2" "Tool call name" "No tool call" "$model"
     skip "C.3" "sessionKey match" "No tool call" "$model"
     skip "C.4" "Message content" "No tool call" "$model"
@@ -705,8 +1034,6 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   pass "C.1" "API call succeeded + tool call produced (${elapsed}ms)" "$model"
 
   # C.2: Tool is sessions_send
-  local tool_name
-  tool_name=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.name // ""' 2>/dev/null)
   if [[ "$tool_name" == "sessions_send" ]]; then
     pass "C.2" "Tool call is 'sessions_send'" "$model"
   else
@@ -715,8 +1042,7 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   fi
 
   # C.3: Correct sessionKey
-  local send_args send_session
-  send_args=$(echo "$response" | jq -r '.choices[0].message.tool_calls[0].function.arguments // ""' 2>/dev/null)
+  local send_session
   send_session=$(echo "$send_args" | jq -r '.sessionKey // ""' 2>/dev/null)
   if [[ "$send_session" == "agent:test:main" ]]; then
     pass "C.3" "sessionKey matches (agent:test:main)" "$model"

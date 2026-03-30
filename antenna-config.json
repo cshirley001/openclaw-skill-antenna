@@ -2,7 +2,7 @@
   "max_message_length": 10000,
   "default_target_session": "main",
   "relay_agent_id": "antenna",
-  "relay_agent_model": "openai/gpt-5.4",
+  "relay_agent_model": "nvidia/moonshotai/kimi-k2-instruct",
   "local_agent_id": "betty",
   "install_path": "/home/corey/clawd/skills/antenna",
   "log_enabled": true,
