@@ -20,16 +20,23 @@ Send messages between OpenClaw instances over Tailscale using the built-in `/hoo
 3. A shared hooks token across peers
 4. The `antenna` agent registered on each instance
 
+### Install & Configure
+
+1. Copy or install the skill into your OpenClaw `skills/antenna/` directory
+2. Edit `antenna-config.json` — set `local_agent_id`, `install_path`, `relay_agent_model`, and your allowed peers
+3. Edit `antenna-peers.json` — add your hosts (mark one as `"self": true`)
+4. Register the `antenna` agent in your gateway config
+
 ### Send a message
 
 ```bash
-antenna msg bettyxx "Hey Sis, what's the weather like over there?"
+antenna msg <peer-id> "Hello from across the tailnet!"
 ```
 
 ### Check peer health
 
 ```bash
-antenna peers test bettyxx
+antenna peers test <peer-id>
 ```
 
 ### View status
@@ -60,11 +67,15 @@ antenna-send.sh                         /hooks/agent endpoint
 
 ## Configuration
 
-Edit `antenna-config.json` for system defaults and `antenna-peers.json` for the peer registry. See `SKILL.md` for full documentation.
+All host-specific settings live in two files that **must be edited** for your environment:
+- `antenna-config.json` — model, agent ID, install path, allowed peers, logging
+- `antenna-peers.json` — peer URLs, tokens, display names
+
+No hardcoded defaults assume a particular host, user, or model. See `SKILL.md` for full documentation.
 
 ## Version
 
-**1.0.0** — Stable baseline. Plain relay mode. Tested between Betty XIX (WSL2 server) and Betty XX (laptop).
+**1.0.1** — Stable baseline with portable configuration.
 
 ## License
 

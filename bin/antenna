@@ -49,9 +49,9 @@ Send options:
   --dry-run           Print envelope without sending
 
 Examples:
-  antenna msg bettyxx "Hey sis, what's the weather like over there?"
-  antenna msg bettyxx                      # prompts for message interactively
-  echo "long message" | antenna send bettyxx --stdin --user Corey
+  antenna msg <peer> "What's the weather like over there?"
+  antenna msg <peer>                      # prompts for message interactively
+  echo "long message" | antenna send <peer> --stdin --user "Your Name"
 EOF
   exit 0
 }
@@ -314,7 +314,7 @@ cmd_status() {
 
   # Config summary
   local model max_len mcs
-  model=$(jq -r '.relay_agent_model // "mini"' "$CONFIG_FILE" 2>/dev/null || echo "mini")
+  model=$(jq -r '.relay_agent_model // "unset"' "$CONFIG_FILE" 2>/dev/null || echo "unset")
   max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
   mcs=$(jq -r '.mcs_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
   echo "Relay model: $model"

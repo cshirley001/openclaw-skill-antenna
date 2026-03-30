@@ -184,7 +184,7 @@ fi
 # ── Resolve target session ──────────────────────────────────────────────────
 
 if [[ "$TARGET_SESSION" == "main" ]]; then
-  LOCAL_AGENT=$(jq -r '.local_agent_id // "betty"' "$CONFIG_FILE" 2>/dev/null || echo "betty")
+  LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
   TARGET_SESSION="agent:${LOCAL_AGENT}:main"
 fi
 

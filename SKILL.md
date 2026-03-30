@@ -1,14 +1,14 @@
 ---
 name: antenna
-version: 1.0.0
+version: 1.0.1
 description: >
   Inter-host OpenClaw session messaging over Tailscale using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
   (2) checking status/health of a remote OpenClaw peer, (3) managing the peer registry
   (adding/removing/listing known peers), (4) any cross-host agent communication that should
   NOT go through visible chat channels like Telegram/WhatsApp/Discord.
-  Triggers: "send to bettyxx", "message the other host", "antenna send", "antenna status",
-  "cross-host message", "inter-host relay", "ping bettyxx", "peer list".
+  Triggers: "send to <peer>", "message the other host", "antenna send", "antenna status",
+  "cross-host message", "inter-host relay", "ping <peer>", "peer list".
 ---
 
 # Antenna — Inter-Host OpenClaw Messaging (v1.0)
@@ -38,29 +38,58 @@ Messages flow through a script-first relay pipeline:
 
 The LLM never touches raw envelope parsing — all logic is in the scripts.
 
-## Peer Registry
+## Configuration
 
-Peers are defined in `antenna-peers.json` (same directory as this SKILL.md).
+All host-specific and user-specific settings live in two config files. **New installations must edit these before first use.** No hardcoded defaults assume a particular host, user, or model.
+
+### `antenna-config.json` — System settings
 
 ```json
 {
-  "bettyxix": {
-    "url": "https://bettyxix.tailde275c.ts.net",
-    "token_file": "/path/to/secrets/hooks_token",
-    "agentId": "antenna",
-    "display_name": "Betty XIX (Server)",
-    "self": true
-  },
-  "bettyxx": {
-    "url": "https://bettyxx-1.tailde275c.ts.net",
-    "token_file": "/path/to/secrets/hooks_token",
-    "agentId": "antenna",
-    "display_name": "Betty XX (Laptop)"
-  }
+  "max_message_length": 10000,
+  "default_target_session": "main",
+  "relay_agent_id": "antenna",
+  "relay_agent_model": "openai/gpt-5.4",
+  "local_agent_id": "<your-agent-id>",
+  "install_path": "<absolute-path-to-this-skill-directory>",
+  "log_enabled": true,
+  "log_path": "antenna.log",
+  "log_max_size_bytes": 10485760,
+  "log_verbose": false,
+  "mcs_enabled": false,
+  "mcs_model": "sonnet",
+  "allowed_inbound_peers": ["<peer-a>", "<peer-b>"],
+  "allowed_outbound_peers": ["<peer-a>", "<peer-b>"]
 }
 ```
 
-### Fields
+| Field | Description |
+|---|---|
+| `relay_agent_model` | Full provider/model ID for the relay agent. Use a specific model, not a local alias. |
+| `local_agent_id` | Your primary assistant agent ID (used to resolve `main` → `agent:<id>:main`). |
+| `install_path` | Absolute path to this skill directory on your host. Used by the agent to resolve script paths. |
+| `allowed_inbound_peers` | Peer IDs allowed to send messages to this host. |
+| `allowed_outbound_peers` | Peer IDs this host is allowed to send to. |
+
+### `antenna-peers.json` — Peer registry
+
+```json
+{
+  "<your-host-id>": {
+    "url": "https://<your-tailscale-hostname>",
+    "token_file": "/path/to/secrets/hooks_token",
+    "agentId": "antenna",
+    "display_name": "My Host (Server)",
+    "self": true
+  },
+  "<remote-peer-id>": {
+    "url": "https://<remote-tailscale-hostname>",
+    "token_file": "/path/to/secrets/hooks_token",
+    "agentId": "antenna",
+    "display_name": "Remote Host (Laptop)"
+  }
+}
+```
 
 | Field | Required | Description |
 |---|---|---|
@@ -82,13 +111,13 @@ scripts/antenna-send.sh <peer> "Your message here"
 antenna msg <peer> "Your message here"
 
 # Target a specific session on the recipient
-scripts/antenna-send.sh <peer> --session "agent:betty:antennatest1" "Your message"
+scripts/antenna-send.sh <peer> --session "agent:<agent-id>:mychannel" "Your message"
 
 # With a subject line
 antenna msg <peer> --subject "Config sync" "Here's the block you need..."
 
 # Optional humanized sender mode (experimental)
-antenna msg <peer> --user Corey "Your message"
+antenna msg <peer> --user "Your Name" "Your message"
 
 # Read message from stdin
 echo "Long message body..." | antenna send <peer> --stdin
@@ -134,13 +163,13 @@ Messages are async fire-and-forget. Every message includes a return-address head
 
 ```
 [ANTENNA_RELAY]
-from: bettyxix
+from: <sender-peer-id>
 target_session: main
 timestamp: 2026-03-28T22:20:00Z
-reply_to: https://bettyxix.tailde275c.ts.net/hooks/agent
-subject: NVIDIA config sync
+reply_to: https://<sender-tailscale-hostname>/hooks/agent
+subject: Config sync
 
-Hey Sis, here's the config block you need...
+Hey, here's the config block you need...
 [/ANTENNA_RELAY]
 ```
 
@@ -154,26 +183,6 @@ Hey Sis, here's the config block you need...
 | `reply_to` | No | Sender's hook URL for replies (enables two-way) |
 | `subject` | No | Optional subject/thread label |
 | `user` | No | Optional human sender name (experimental) |
-
-## Configuration (`antenna-config.json`)
-
-```json
-{
-  "max_message_length": 10000,
-  "default_target_session": "main",
-  "relay_agent_id": "antenna",
-  "relay_agent_model": "mini",
-  "local_agent_id": "betty",
-  "log_enabled": true,
-  "log_path": "antenna.log",
-  "log_max_size_bytes": 10485760,
-  "log_verbose": false,
-  "mcs_enabled": false,
-  "mcs_model": "sonnet",
-  "allowed_inbound_peers": ["bettyxix", "bettyxx"],
-  "allowed_outbound_peers": ["bettyxix", "bettyxx"]
-}
-```
 
 ## Security Notes
 
@@ -200,8 +209,8 @@ skills/antenna/
 ├── SKILL.md                    # This file
 ├── README.md                   # Public-facing overview (for ClawHub)
 ├── CHANGELOG.md                # Version history
-├── antenna-peers.json          # Peer registry
-├── antenna-config.json         # System configuration
+├── antenna-peers.json          # Peer registry (EDIT FOR YOUR HOSTS)
+├── antenna-config.json         # System configuration (EDIT FOR YOUR SETUP)
 ├── antenna.log                 # Transaction log (created at runtime)
 ├── bin/
 │   └── antenna                 # CLI dispatcher
