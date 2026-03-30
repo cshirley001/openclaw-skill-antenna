@@ -452,12 +452,20 @@ run_tier_b() {
   local system_prompt
   system_prompt=$(cat "$AGENT_INSTRUCTIONS")
 
+  local test_ts
+  test_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
 target_session: agent:test:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${test_ts}
 
-Hello from the model tester.
+[Antenna Test Suite — Tier B]
+model_under_test: ${model}
+host: $(hostname)
+test_time: ${test_ts}
+
+This is an automated relay compatibility test verifying that ${model} correctly invokes the relay script when receiving an inbound envelope.
 [/ANTENNA_RELAY]"
 
   local request_body
@@ -582,24 +590,39 @@ run_tier_c() {
   local system_prompt
   system_prompt=$(cat "$AGENT_INSTRUCTIONS")
 
+  local test_ts
+  test_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local test_ts_short
+  test_ts_short=$(date -u +"%Y-%m-%d %H:%M UTC")
+
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
 target_session: agent:test:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${test_ts}
 
-Hello from the model tester.
+[Antenna Test Suite — Tier C]
+model_under_test: ${model}
+host: $(hostname)
+test_time: ${test_ts}
+
+This is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay script output.
 [/ANTENNA_RELAY]"
 
+  local sim_body="📡 Antenna from Test Peer (testhost) — ${test_ts_short}\n\n[Antenna Test Suite — Tier C]\nmodel_under_test: ${model}\nhost: $(hostname)\ntest_time: ${test_ts}\n\nThis is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay script output."
+
   local simulated_result
-  simulated_result=$(jq -n '{
-    action: "relay",
-    status: "ok",
-    sessionKey: "agent:test:main",
-    message: "📡 Antenna from Test Peer (testhost) — 2026-01-01 00:00 UTC\n\nHello from the model tester.",
-    from: "testhost",
-    timestamp: "2026-01-01T00:00:00Z",
-    chars: 30
-  }' | jq -c .)
+  simulated_result=$(jq -n \
+    --arg msg "$sim_body" \
+    --arg ts "$test_ts" \
+    '{
+      action: "relay",
+      status: "ok",
+      sessionKey: "agent:test:main",
+      message: $msg,
+      from: "testhost",
+      timestamp: $ts,
+      chars: ($msg | length)
+    }' | jq -c .)
 
   local tool_call_id="call_test_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
 
@@ -704,7 +727,7 @@ Hello from the model tester.
   # C.4: Message includes relay content
   local send_message
   send_message=$(echo "$send_args" | jq -r '.message // ""' 2>/dev/null)
-  if echo "$send_message" | grep -q "Antenna\|Hello from the model tester"; then
+  if echo "$send_message" | grep -q "Antenna\|Test Suite\|relay compatibility test"; then
     pass "C.4" "Message includes relay content" "$model"
   else
     fail "C.4" "Message includes relay content" "Expected relay text not found" "$model"

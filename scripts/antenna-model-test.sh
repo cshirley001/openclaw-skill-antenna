@@ -132,7 +132,18 @@ for (( i=1; i<=RUNS; i++ )); do
   SEND_OUTPUT=""
   SEND_RC=0
 
-  SEND_OUTPUT=$(bash "$SEND_SCRIPT" "$SELF_PEER" --session "$TEST_SESSION" "antenna-model-test run $i/$RUNS" 2>&1) || SEND_RC=$?
+  TEST_NONCE="MODELTEST_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+  TEST_BODY="[Antenna Model Test]
+model: ${MODEL}
+run: ${i}/${RUNS}
+nonce: ${TEST_NONCE}
+host: $(hostname)
+timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+timeout: ${TIMEOUT}s
+
+This is an automated relay test verifying that ${MODEL} can serve as the Antenna relay agent."
+
+  SEND_OUTPUT=$(bash "$SEND_SCRIPT" "$SELF_PEER" --session "$TEST_SESSION" "$TEST_BODY" 2>&1) || SEND_RC=$?
 
   if [[ $SEND_RC -ne 0 ]]; then
     END_TS=$(date +%s%N)

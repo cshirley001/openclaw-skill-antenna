@@ -2,6 +2,20 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.3] — 2026-03-30
+
+### Summary
+Enriched test messages with meaningful metadata for forensic traceability.
+
+### Changed
+- `scripts/antenna-model-test.sh` — live smoke test messages now include: model name, run number, unique nonce, hostname, timestamp, and timeout value (replaces generic "antenna-model-test run N" string)
+- `scripts/antenna-test-suite.sh` — Tier B and Tier C test envelopes now include: tier label, model under test, hostname, and test timestamp (replaces static "Hello from the model tester" body)
+- Tier C simulated relay output reflects enriched content for consistent C.4 validation
+- C.4 assertion updated to match new message content patterns
+
+### Why
+Test messages that carry context about what produced them make relay debugging and multi-model comparison forensically useful — you can trace any delivered message back to the exact model, tier, and timestamp that generated it.
+
 ## [1.0.2] — 2026-03-30
 
 ### Summary
