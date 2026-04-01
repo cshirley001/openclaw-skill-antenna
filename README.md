@@ -100,9 +100,99 @@ All host-specific settings live in two files that **must be edited** for your en
 
 No hardcoded defaults assume a particular host, user, or model. See `SKILL.md` for full documentation.
 
+## Health Check & Diagnostics
+
+Antenna includes a built-in doctor that validates your installation before and after setup:
+
+```bash
+# Full health check — verifies gateway config, hooks, agent registration, secrets, connectivity
+antenna doctor
+
+# Back up your gateway config before making changes
+antenna doctor --backup
+
+# Show copy-paste fix suggestions for any issues found
+antenna doctor --fix-hints
+```
+
+The doctor checks:
+1. Antenna config files exist and are valid JSON
+2. Gateway config (`openclaw.json`) exists and is valid JSON
+3. Hooks are enabled with the correct settings
+4. Antenna agent is registered
+5. Required allowlist entries are present
+6. Secret files exist with correct permissions
+7. Remote peer connectivity (basic reachability)
+
+**Run `antenna doctor` after editing your gateway config and before restarting the gateway.** This catches JSON syntax errors and missing config entries before they take your gateway down.
+
+## Troubleshooting & Recovery
+
+### Gateway won't start after editing config
+
+This is the most common issue — a JSON syntax error in `openclaw.json` after adding the Antenna agent.
+
+**If you have a backup** (created automatically by `antenna setup`):
+```bash
+cp ~/.openclaw/openclaw.json.antenna-backup ~/.openclaw/openclaw.json
+openclaw gateway restart
+```
+
+**If you don't have a backup**, find and fix the JSON error:
+```bash
+# This will show you exactly where the syntax error is
+jq empty ~/.openclaw/openclaw.json
+
+# Common culprits:
+# - Missing comma after the entry before the one you added
+# - Trailing comma after the last entry in an array/object
+# - Mismatched brackets or braces
+```
+
+**Validate before restarting** — always run this after editing:
+```bash
+jq empty ~/.openclaw/openclaw.json && echo "Valid JSON ✓" || echo "INVALID JSON ✗"
+# or simply:
+antenna doctor
+```
+
+### Hooks return 401/403
+
+- **401 Unauthorized**: Token mismatch. Verify the sending peer's token matches your `hooks.token`.
+- **403 Forbidden**: Session key prefix or agent ID not in allowlist. Check `hooks.allowedAgentIds` includes `"antenna"` and `hooks.allowedSessionKeyPrefixes` includes `"hook:antenna"` (or broader `"hook:"`).
+
+### Message sent but not visible
+
+This is usually a Control UI display delay, not a delivery failure. The receiving agent processes the message promptly — the sender's UI may take minutes to refresh.
+
+### Peer unreachable
+
+```bash
+# Check if their endpoint responds at all
+curl -s -o /dev/null -w '%{http_code}' https://peer-hostname.example/hooks/agent
+
+# If 000: host is down, tunnel/funnel is off, or DNS isn't resolving
+# If 405: endpoint is reachable (POST-only, GET returns 405) — this is fine
+```
+
+### Starting fresh
+
+If things are really tangled:
+```bash
+# 1. Restore gateway config from backup
+cp ~/.openclaw/openclaw.json.antenna-backup ~/.openclaw/openclaw.json
+openclaw gateway restart
+
+# 2. Re-run Antenna setup
+antenna setup --force
+
+# 3. Follow the setup instructions again, using antenna doctor to verify each step
+antenna doctor --fix-hints
+```
+
 ## Version
 
-**1.0.4** — Anthropic + Google Gemini native API support in test suite (7 provider families).
+**1.0.9** — Added `antenna doctor` health check, config backup on setup, and recovery docs.
 
 ## License
 

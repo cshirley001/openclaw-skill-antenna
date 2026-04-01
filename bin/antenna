@@ -27,6 +27,11 @@ Usage:
   antenna setup                              First-run setup wizard
   antenna setup --host-id <id> ...           Non-interactive setup (see --help)
 
+  antenna doctor                             Health check: verify gateway config, secrets, connectivity
+  antenna doctor --backup                    Back up gateway config before changes
+  antenna doctor --fix-hints                 Show copy-paste fix suggestions
+  antenna doctor --gateway <path>            Override gateway config path
+
   antenna send <peer> [options] <message>    Send a message to a peer
   antenna send <peer> [options] --stdin      Send message from stdin
   antenna msg <peer> [message]               Quick send (plain host mode by default)
@@ -359,6 +364,10 @@ cmd_log() {
   tail -"$tail_n" "$LOG_FILE"
 }
 
+cmd_doctor() {
+  bash "$SCRIPTS_DIR/antenna-doctor.sh" "$@"
+}
+
 cmd_test() {
   bash "$SCRIPTS_DIR/antenna-model-test.sh" "$@"
 }
@@ -511,6 +520,7 @@ shift || true
 
 case "$COMMAND" in
   setup)    cmd_setup "$@" ;;
+  doctor)   cmd_doctor "$@" ;;
   send)     cmd_send "$@" ;;
   msg)      cmd_msg "$@" ;;
   peers)    cmd_peers "$@" ;;

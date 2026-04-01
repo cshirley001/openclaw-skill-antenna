@@ -13,5 +13,12 @@
     "peer_secret_file": "secrets/antenna-peer-bettyxx.secret",
     "agentId": "antenna",
     "display_name": "Betty XX (Laptop)"
+  },
+  "nexus": {
+    "url": "https://x5.tailbd8fe6.ts.net",
+    "token_file": "secrets/hooks_token_nexus",
+    "peer_secret_file": "secrets/antenna-peer-nexus.secret",
+    "agentId": "antenna",
+    "display_name": "Nexus (x5)"
   }
 }

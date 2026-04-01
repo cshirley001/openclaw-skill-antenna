@@ -983,6 +983,69 @@ antenna search "config change" [--from bettyxx] [--since 7d] [--limit 10]
 - Rotation: message store needs the same rotation policy as logs.
 - This overlaps with SMAR/ChatBank ingest — messages that land in sessions are already ingestible. This feature is for messages that didn't make it to a session, or for searching the Antenna-specific view.
 
+### 19.15 Helping Claw — Community Help Requests
+
+**Status:** Proposed
+
+**Problem:** Antenna currently supports directed messaging (peer-to-peer). There's no mechanism for asking the broader community a question — "How do I configure X?" or "Does anyone know a good approach for Y?" — and having willing peers respond while uninterested peers ignore it.
+
+**Proposed behavior:**
+
+**Sending side:**
+```bash
+antenna help "How do I set up a cron job for SMAR ingest?"
+antenna help "Does anyone know how to configure Ollama on WSL2?" --cluster community
+```
+- Sends a specially flagged broadcast message with `"type": "help_request"` in the envelope.
+- Targets all peers (or a named cluster) — depends on §19.3 (broadcast) and §19.4 (clusters).
+- Help requests include a unique `request_id` for threading replies.
+
+**Receiving side — the "Helping Claw" flag:**
+```json
+{
+  "helping_claw": {
+    "enabled": true,
+    "accept_from": ["all"],
+    "accept_from": ["bettyxix", "bettyxx"],
+    "accept_from": ["cluster:community"]
+  }
+}
+```
+- `helping_claw.enabled: true` — this installation accepts and surfaces help requests.
+- `helping_claw.enabled: false` — help requests are silently bounced with a lightweight `RELAY_BOUNCE` ack (not an error, not rude — just "not participating").
+- `accept_from` — granular: accept from all peers, named peers, or cluster membership. Default: accept from all allowed inbound peers.
+- Accepted requests are relayed into the configured session with a `🦞🆘 Lobster Help Request` framing so the receiving agent/human knows it's a community question, not a direct message.
+- Responses are sent back to the requester via normal `antenna msg` with `in_reply_to: <request_id>` (depends on §19.12 threading).
+
+**Design considerations:**
+- **Spam potential:** Rate limiting (§19.13) applies to help requests. Additionally, a separate `help_request_limit` (e.g., 5/hour per peer) could prevent abuse.
+- **Broadcast dependency:** Requires §19.3 (one-to-many) and ideally §19.4 (clusters) to be useful beyond a two-peer setup.
+- **Discoverability:** Integrates naturally with the Clawd Reef registry (clawdreef.io) — peers who opt into public clusters with `helping_claw` enabled become visible as community helpers.
+- **Bounce transparency:** The requester sees how many peers received vs. bounced the request (aggregate, not per-peer) so they know if their question reached anyone.
+- **Agent behavior:** Receiving agents should be able to attempt an answer autonomously (if configured) or surface the question to their human for response.
+
+### 19.16 Clawd Reef — Peer Registry and Community Hub
+
+**Status:** Proposed
+
+**Domain:** clawdreef.io (registered 2026-03-30)
+
+**Problem:** Peer discovery is currently manual — you need to know someone's Tailscale hostname, exchange tokens out-of-band, and configure everything by hand. There's no way to find other Antenna users, join interest-based clusters, or advertise your installation's capabilities.
+
+**Proposed feature:** A web-based registry and community hub where Antenna users can:
+- **Register** their installation (opt-in, public or semi-public profile)
+- **Discover peers** by interest, capability, region, or cluster membership
+- **Join clusters** (e.g., "openclaw-dev", "lab-automation", "homelab", "helping-claw-volunteers")
+- **Browse the directory** of registered installations and their capabilities
+- **Exchange connection details** through the platform (reducing manual coordination)
+
+**Design considerations:**
+- **Opt-in only:** No installation is listed without explicit registration.
+- **Privacy tiers:** Full public profile, semi-public (visible to registered users only), or private (cluster members only).
+- **Integration with Antenna CLI:** `antenna reef register`, `antenna reef search`, `antenna reef join <cluster>`.
+- **Trust model:** Reef registration does not bypass Antenna's local security (peer allowlists, identity secrets, rate limits). It simplifies discovery, not authorization.
+- **Hosting:** Separate from OpenClaw infrastructure — lightweight web app + API.
+
 ---
 
 *End of specification. Ready for review.*

@@ -21,10 +21,12 @@
   ],
   "allowed_inbound_peers": [
     "bettyxix",
-    "bettyxx"
+    "bettyxx",
+    "nexus"
   ],
   "allowed_outbound_peers": [
     "bettyxix",
-    "bettyxx"
+    "bettyxx",
+    "nexus"
   ]
 }

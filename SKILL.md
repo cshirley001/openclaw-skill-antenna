@@ -219,8 +219,19 @@ Hey, here's the config block you need...
 - Token is read from file at send time, never embedded in scripts
 - Script-first design: relay agent never interprets message body content
 
+## Health Check
+
+Run `antenna doctor` to verify your installation is correct before and after setup:
+
+```bash
+antenna doctor                # Full diagnostic
+antenna doctor --backup       # Back up gateway config first
+antenna doctor --fix-hints    # Show copy-paste fix suggestions
+```
+
 ## Troubleshooting
 
+- **Gateway won't start**: Most likely invalid JSON in `openclaw.json`. Run `antenna doctor` or `jq empty ~/.openclaw/openclaw.json` to find the error. Restore backup with `cp ~/.openclaw/openclaw.json.antenna-backup ~/.openclaw/openclaw.json`.
 - **Connection timeout**: Check `tailscale ping <peer>` and verify gateway is running on target
 - **401 Unauthorized**: Token mismatch — verify same token on both hosts
 - **403 Forbidden**: Session key prefix or agent ID not in allowlist
@@ -244,6 +255,7 @@ skills/antenna/
 │   ├── antenna-relay.sh        # Receiver: parses, validates, formats, logs
 │   ├── antenna-health.sh       # Peer health check
 │   ├── antenna-peers.sh        # Peer listing utility
+│   ├── antenna-doctor.sh        # Installation health check / config validator
 │   ├── antenna-model-test.sh   # Self-loop integration tester (smoke)
 │   └── antenna-test-suite.sh   # Three-tier model/script test suite
 ├── docs/

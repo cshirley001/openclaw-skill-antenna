@@ -311,6 +311,33 @@ fi
 # ── Print gateway registration instructions ──────────────────────────────────
 
 echo ""
+# ── Back up gateway config before user edits it ─────────────────────────────
+
+header "═══ Gateway Config Backup ═══"
+echo ""
+GATEWAY_CFG=""
+for candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+  if [[ -f "$candidate" ]]; then
+    GATEWAY_CFG="$candidate"
+    break
+  fi
+done
+
+if [[ -n "$GATEWAY_CFG" ]]; then
+  BACKUP_PATH="${GATEWAY_CFG}.antenna-backup"
+  cp "$GATEWAY_CFG" "$BACKUP_PATH"
+  chmod 600 "$BACKUP_PATH"
+  ok "Gateway config backed up: $BACKUP_PATH"
+  echo ""
+  echo -e "  ${YELLOW}If anything goes wrong after editing, restore with:${NC}"
+  echo -e "  ${CYAN}cp $BACKUP_PATH $GATEWAY_CFG${NC}"
+  echo -e "  ${CYAN}openclaw gateway restart${NC}"
+else
+  warn "Could not find gateway config to back up (checked ~/.openclaw/openclaw.json)"
+  info "If your config is elsewhere, back it up manually before proceeding."
+fi
+echo ""
+
 header "═══ Gateway Registration ═══"
 echo ""
 echo "  Add the following to your OpenClaw gateway config (openclaw.yaml or equivalent):"
@@ -343,14 +370,16 @@ echo ""
 header "═══ Next Steps ═══"
 echo ""
 echo "  1. Register the agent in your gateway config (see above)"
-echo "  2. Restart the gateway: openclaw gateway restart"
-echo "  3. Add a remote peer:"
+echo -e "  2. ${BOLD}Verify your edits before restarting:${NC}"
+echo "     antenna doctor"
+echo "  3. Restart the gateway: openclaw gateway restart"
+echo "  4. Add a remote peer:"
 echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
-echo "  4. Exchange identity secrets with that peer:"
+echo "  5. Exchange identity secrets with that peer:"
 echo "     antenna peers exchange <peer-id>"
-echo "  5. Test connectivity:"
+echo "  6. Test connectivity:"
 echo "     antenna peers test <peer-id>"
-echo "  6. Send your first message:"
+echo "  7. Send your first message:"
 echo "     antenna msg <peer-id> \"Hello from the other side!\""
 echo ""
 ok "Setup complete! Your host ID is: ${BOLD}$HOST_ID${NC}"
