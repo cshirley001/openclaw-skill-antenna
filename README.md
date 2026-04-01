@@ -1,10 +1,10 @@
 # 📡 Antenna — Inter-Host OpenClaw Messaging
 
-Send messages between OpenClaw instances over Tailscale using the built-in `/hooks/agent` webhook. No custom server, no persistent connections — just fire-and-forget relay with full audit logging.
+Send messages between OpenClaw instances using the built-in `/hooks/agent` webhook. Works across Tailscale (direct or Funnel), or any public HTTPS endpoint — your infrastructure, your choice. No custom server, no persistent connections — just fire-and-forget relay with full audit logging.
 
 ## What It Does
 
-- **Cross-host messaging** between any OpenClaw instances with reachable HTTPS endpoints
+- **Cross-host messaging** between OpenClaw instances — Tailscale, Funnel, Cloudflare Tunnel, reverse proxy, or any reachable HTTPS URL
 - **Script-first relay** — all parsing, validation, and formatting is deterministic (no LLM interpretation of message content)
 - **Dedicated lightweight relay agent** — minimal context, minimal cost per relay
 - **Peer registry** — manage known hosts with URLs, tokens, and display names
