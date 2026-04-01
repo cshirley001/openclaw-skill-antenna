@@ -4,7 +4,7 @@ Send messages between OpenClaw instances over Tailscale using the built-in `/hoo
 
 ## What It Does
 
-- **Cross-host messaging** between any OpenClaw instances on the same Tailscale network
+- **Cross-host messaging** between any OpenClaw instances with reachable HTTPS endpoints
 - **Script-first relay** — all parsing, validation, and formatting is deterministic (no LLM interpretation of message content)
 - **Dedicated lightweight relay agent** — minimal context, minimal cost per relay
 - **Peer registry** — manage known hosts with URLs, tokens, and display names
@@ -15,10 +15,11 @@ Send messages between OpenClaw instances over Tailscale using the built-in `/hoo
 
 ### Prerequisites
 
-1. Two or more OpenClaw instances on the same Tailscale network
+1. Two or more OpenClaw instances, each with a **reachable HTTPS endpoint** (Tailscale Funnel, Cloudflare Tunnel, reverse proxy, VPS — any works)
 2. Hooks enabled on all instances (`hooks.enabled: true`)
-3. A shared hooks token across peers
-4. The `antenna` agent registered on each instance
+3. Each peer's hooks bearer token (exchanged out-of-band; per-peer, not shared)
+4. Per-peer identity secrets for sender authentication (generated during `antenna setup` / `antenna peers exchange`)
+5. The `antenna` agent registered on each instance
 
 ### Install & Configure
 
@@ -30,7 +31,7 @@ Send messages between OpenClaw instances over Tailscale using the built-in `/hoo
 ### Send a message
 
 ```bash
-antenna msg <peer-id> "Hello from across the tailnet!"
+antenna msg <peer-id> "Hello from across the reef!"
 ```
 
 ### Check peer health
