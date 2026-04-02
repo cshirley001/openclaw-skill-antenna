@@ -28,6 +28,10 @@ Each participating host needs:
    - `antenna-config.json`
    - `antenna-peers.json`
 
+Normal path:
+- Run `antenna setup` to generate the live runtime files.
+- Use `antenna-config.example.json` and `antenna-peers.example.json` as tracked reference templates only.
+
 Notes:
 - Peers do **not** need to share one tailnet or one central hub.
 - Tailscale Funnel is a convenient default, but reverse proxies, VPS/domain-hosted HTTPS, Cloudflare Tunnel, and similar paths also work.
@@ -56,6 +60,16 @@ Antenna trust is layered:
 For peer onboarding, Antenna now prefers **Layer A encrypted bootstrap exchange** using `age`.
 
 ## Configuration
+
+Live runtime files are local installation state:
+- `antenna-config.json`
+- `antenna-peers.json`
+
+Tracked reference files live beside them:
+- `antenna-config.example.json`
+- `antenna-peers.example.json`
+
+Use `antenna setup` for normal installation; use the `*.example.json` files for schema reference or manual recovery.
 
 ### `antenna-config.json`
 
@@ -218,6 +232,8 @@ skills/antenna/
 ├── SKILL.md
 ├── README.md
 ├── CHANGELOG.md
+├── antenna-config.example.json
+├── antenna-peers.example.json
 ├── antenna-peers.json
 ├── antenna-config.json
 ├── antenna.log
@@ -238,6 +254,10 @@ skills/antenna/
     ├── AGENTS.md
     └── TOOLS.md
 ```
+
+Notes:
+- `antenna-config.json` and `antenna-peers.json` are local runtime files created by `antenna setup`
+- `antenna-config.example.json` and `antenna-peers.example.json` are tracked reference templates
 
 ## Gateway / Agent Registration
 

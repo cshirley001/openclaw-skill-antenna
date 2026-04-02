@@ -2,9 +2,9 @@
   "max_message_length": 10000,
   "default_target_session": "main",
   "relay_agent_id": "antenna",
-  "relay_agent_model": "nvidia/moonshotai/kimi-k2-instruct",
-  "local_agent_id": "betty",
-  "install_path": "/home/corey/clawd/skills/antenna",
+  "relay_agent_model": "openai/gpt-5.4",
+  "local_agent_id": "<your-agent-id>",
+  "install_path": "/absolute/path/to/skills/antenna",
   "log_enabled": true,
   "log_path": "antenna.log",
   "log_max_size_bytes": 10485760,
@@ -20,13 +20,9 @@
     "antenna"
   ],
   "allowed_inbound_peers": [
-    "bettyxix",
-    "bettyxx",
-    "nexus"
+    "<your-host-id>"
   ],
   "allowed_outbound_peers": [
-    "bettyxix",
-    "bettyxx",
-    "nexus"
+    "<your-host-id>"
   ]
 }

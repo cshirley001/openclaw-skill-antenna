@@ -2,6 +2,8 @@
 antenna.log
 antenna.log.*
 test-results/
+antenna-config.json
+antenna-peers.json
 
 # Secrets — never commit
 **/secrets/

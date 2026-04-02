@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # antenna-setup.sh — First-run setup wizard for Antenna.
 # Creates config, peers file, identity secret, and prints gateway registration instructions.
+# Runtime files are local installation state; tracked example files live alongside them.
 #
 # Usage:
 #   antenna-setup.sh                           Interactive wizard
@@ -87,9 +88,10 @@ Non-interactive:
     [--force]
 
 Creates:
-  - antenna-config.json (system settings)
-  - antenna-peers.json (peer registry with self-peer entry)
+  - antenna-config.json (local runtime settings; gitignored)
+  - antenna-peers.json (local peer registry with self-peer entry; gitignored)
   - secrets/antenna-peer-<host-id>.secret (your identity secret)
+  - Example/reference files remain available: antenna-config.example.json, antenna-peers.example.json
   - Prints gateway registration instructions
 EOF
       exit 0
@@ -138,7 +140,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "  This wizard will configure Antenna on this host."
   echo "  You'll need:"
   echo "    1. Your OpenClaw host ID (usually your hostname)"
-  echo "    2. Your Tailscale serve URL or tailnet IP"
+  echo "    2. Your reachable HTTPS hook URL"
   echo "    3. Your primary agent ID (e.g., 'betty')"
   echo "    4. A relay model (e.g., 'openai/gpt-5.4')"
   echo "    5. Path to your OpenClaw hooks bearer token file"
@@ -158,9 +160,9 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   prompt DISPLAY_NAME "Display name (human-readable, shown in message headers)" "${HOST_ID^} ($(hostname))"
 
   # URL
-  header "Step 2/6 — Tailscale Endpoint"
+  header "Step 2/6 — Reachable Endpoint"
   info "This is the URL other peers use to reach your /hooks/agent endpoint."
-  info "Examples: https://myhost.tailXXXXX.ts.net  or  http://100.x.y.z:4440"
+  info "Examples: https://myhost.tailXXXXX.ts.net  or  https://your-host.example.com"
   prompt HOST_URL "Your hook URL" ""
   # Strip trailing slash
   HOST_URL="${HOST_URL%/}"
@@ -216,6 +218,8 @@ echo -e "  Agent ID:     ${BOLD}$AGENT_ID${NC}"
 echo -e "  Relay model:  ${BOLD}$RELAY_MODEL${NC}"
 echo -e "  Token file:   ${BOLD}$TOKEN_FILE${NC}"
 echo -e "  Install path: ${BOLD}$SKILL_DIR${NC}"
+echo -e "  Examples:     ${BOLD}$SKILL_DIR/antenna-config.example.json${NC}"
+echo -e "                ${BOLD}$SKILL_DIR/antenna-peers.example.json${NC}"
 echo ""
 
 if [[ "$INTERACTIVE" == "true" ]]; then
@@ -295,6 +299,8 @@ if [[ ! -f "$GITIGNORE" ]]; then
 antenna.log
 antenna.log.*
 test-results/
+antenna-config.json
+antenna-peers.json
 
 # Secrets — never commit
 **/secrets/
@@ -381,6 +387,12 @@ echo "  6. Test connectivity:"
 echo "     antenna peers test <peer-id>"
 echo "  7. Send your first message:"
 echo "     antenna msg <peer-id> \"Hello from the other side!\""
+echo ""
+echo "  Notes:"
+echo "    - antenna-config.json and antenna-peers.json are local runtime files"
+echo "    - tracked reference examples live at:"
+echo "      antenna-config.example.json"
+echo "      antenna-peers.example.json"
 echo ""
 ok "Setup complete! Your host ID is: ${BOLD}$HOST_ID${NC}"
 echo ""

@@ -70,8 +70,8 @@ antenna-send.sh ─────────────────────�
 |---|---|---|
 | `antenna-send.sh` | Sender host, `skills/antenna/scripts/` | Builds envelope, POSTs to recipient `/hooks/agent` |
 | `antenna-relay.sh` | Recipient host, `skills/antenna/scripts/` | Parses envelope, validates, formats delivery message, logs. Pure script — no LLM. |
-| `antenna-peers.json` | Both hosts, `skills/antenna/` | Peer registry (URLs, bearer-token refs, per-peer identity-secret refs, exchange public keys, metadata) |
-| `antenna-config.json` | Both hosts, `skills/antenna/` | System defaults (max length, logging, MCS toggle, etc.) |
+| `antenna-peers.json` | Both hosts, `skills/antenna/` | Local runtime peer registry (URLs, bearer-token refs, per-peer identity-secret refs, exchange public keys, metadata). Normally created by `antenna setup`. |
+| `antenna-config.json` | Both hosts, `skills/antenna/` | Local runtime system defaults (max length, logging, MCS toggle, etc.). Normally created by `antenna setup`. |
 | `antenna.log` | Both hosts, `skills/antenna/` | Append-only transaction log |
 | Antenna agent | Recipient gateway | Dedicated lightweight agent. Runs `antenna-relay.sh`, then calls `sessions_send`. Nothing else. |
 | Target session | Recipient gateway | Final destination where message is persisted and visible |
@@ -341,6 +341,8 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 
 ## 7. System Configuration (`antenna-config.json`)
 
+`antenna-config.json` is a **local runtime file**, not intended to be shared as live repo state. Normal installs create it with `antenna setup`. The repo may also carry `antenna-config.example.json` as a tracked reference template.
+
 ```json
 {
   "max_message_length": 10000,
@@ -391,6 +393,8 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 ---
 
 ## 8. Peer Registry (`antenna-peers.json`)
+
+`antenna-peers.json` is a **local runtime file**, not intended to be shared as live repo state. Normal installs create it with `antenna setup`. The repo may also carry `antenna-peers.example.json` as a tracked reference template.
 
 ```json
 {
@@ -616,8 +620,10 @@ Bash dispatcher script (`antenna`) that routes to sub-scripts or inline function
 ```
 skills/antenna/
 ├── SKILL.md                    # Skill documentation (updated)
-├── antenna-peers.json          # Peer registry
-├── antenna-config.json         # System configuration
+├── antenna-config.example.json # Tracked reference template
+├── antenna-peers.example.json  # Tracked reference template
+├── antenna-peers.json          # Local runtime peer registry (created by setup)
+├── antenna-config.json         # Local runtime system configuration (created by setup)
 ├── antenna.log                 # Transaction log (created at runtime)
 ├── bin/
 │   └── antenna                 # CLI dispatcher
