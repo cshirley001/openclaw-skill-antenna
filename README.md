@@ -27,6 +27,7 @@ Send messages between OpenClaw instances using the built-in `/hooks/agent` webho
 2. Run `antenna setup` to generate your local runtime files:
    - `antenna-config.json`
    - `antenna-peers.json`
+   - Later, if you want to reset or remove the install cleanly, use `antenna uninstall`
 3. Inspect `antenna-config.example.json` and `antenna-peers.example.json` if you want reference templates for manual editing/recovery
 4. Register the `antenna` agent in your gateway config
 
@@ -188,16 +189,20 @@ curl -s -o /dev/null -w '%{http_code}' https://peer-hostname.example/hooks/agent
 
 If things are really tangled:
 ```bash
-# 1. Restore gateway config from backup
-cp ~/.openclaw/openclaw.json.antenna-backup ~/.openclaw/openclaw.json
-openclaw gateway restart
+# Preview exactly what Antenna would remove
+antenna uninstall --dry-run
 
-# 2. Re-run Antenna setup
-antenna setup --force
+# Remove Antenna runtime state + gateway registration changes
+antenna uninstall
 
-# 3. Follow the setup instructions again, using antenna doctor to verify each step
-antenna doctor --fix-hints
+# Or fully remove the skill directory too
+antenna uninstall --yes --purge-skill-dir
 ```
+
+Notes:
+- By default, `antenna uninstall` removes Antenna runtime files, logs, rate-limit state, test results, Antenna-owned secrets, and the Antenna agent/hooks entries from gateway config.
+- It does **not** remove the rest of OpenClaw.
+- It does **not** delete external token files referenced outside the Antenna skill directory.
 
 ## Version
 

@@ -26,6 +26,7 @@ Antenna — Inter-Host OpenClaw Messaging
 Usage:
   antenna setup                              First-run setup wizard
   antenna setup --host-id <id> ...           Non-interactive setup (see --help)
+  antenna uninstall [options]                Remove Antenna runtime state / optional gateway config
 
   antenna doctor                             Health check: verify gateway config, secrets, connectivity
   antenna doctor --backup                    Back up gateway config before changes
@@ -91,6 +92,10 @@ EOF
 
 cmd_setup() {
   bash "$SCRIPTS_DIR/antenna-setup.sh" "$@"
+}
+
+cmd_uninstall() {
+  bash "$SCRIPTS_DIR/antenna-uninstall.sh" "$@"
 }
 
 cmd_send() {
@@ -561,6 +566,7 @@ shift || true
 
 case "$COMMAND" in
   setup)    cmd_setup "$@" ;;
+  uninstall) cmd_uninstall "$@" ;;
   doctor)   cmd_doctor "$@" ;;
   send)     cmd_send "$@" ;;
   msg)      cmd_msg "$@" ;;

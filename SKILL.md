@@ -188,6 +188,8 @@ Notes:
 
 ```bash
 antenna doctor
+antenna uninstall --dry-run
+antenna uninstall
 antenna peers list
 antenna peers test <id>
 antenna status
@@ -218,6 +220,7 @@ antenna test-suite --report
 ## Troubleshooting
 
 - **Gateway won't start**: Run `antenna doctor`
+- **Want a clean slate**: Run `antenna uninstall` (use `--dry-run` first if you want a preview)
 - **401 Unauthorized**: wrong hook bearer token
 - **403 Forbidden**: session prefix/agent restrictions or peer policy mismatch
 - **Relay rejected**: peer not allowlisted, session not allowlisted, or identity secret mismatch
