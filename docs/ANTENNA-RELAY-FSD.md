@@ -1,9 +1,13 @@
 # Antenna Relay Protocol — Functional Specification
 
-**Version:** 1.0.0  
-**Date:** 2026-03-29  
+**Version:** 1.0.10  
+**Date:** 2026-04-01  
 **Author:** Betty XIX Openclaw  
-**Status:** v1.0 — stable baseline, plain relay mode is the default
+**Status:** v1.0.10 — stable relay baseline plus Layer A encrypted bootstrap exchange
+
+**Companion docs:**
+- `SECRET-EXCHANGE-OPTIONS.md` — secret-exchange layers and tradeoffs
+- `LAYER-A-SECRET-EXCHANGE-PLAN.md` — design notes for the encrypted bootstrap bundle flow
 
 ---
 
@@ -66,7 +70,7 @@ antenna-send.sh ─────────────────────�
 |---|---|---|
 | `antenna-send.sh` | Sender host, `skills/antenna/scripts/` | Builds envelope, POSTs to recipient `/hooks/agent` |
 | `antenna-relay.sh` | Recipient host, `skills/antenna/scripts/` | Parses envelope, validates, formats delivery message, logs. Pure script — no LLM. |
-| `antenna-peers.json` | Both hosts, `skills/antenna/` | Peer registry (URLs, token file refs, metadata) |
+| `antenna-peers.json` | Both hosts, `skills/antenna/` | Peer registry (URLs, bearer-token refs, per-peer identity-secret refs, exchange public keys, metadata) |
 | `antenna-config.json` | Both hosts, `skills/antenna/` | System defaults (max length, logging, MCS toggle, etc.) |
 | `antenna.log` | Both hosts, `skills/antenna/` | Append-only transaction log |
 | Antenna agent | Recipient gateway | Dedicated lightweight agent. Runs `antenna-relay.sh`, then calls `sessions_send`. Nothing else. |
@@ -352,8 +356,13 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
   "log_verbose": false,
   "mcs_enabled": false,
   "mcs_model": "sonnet",
+  "allowed_inbound_sessions": ["main", "antenna"],
   "allowed_inbound_peers": ["<peer-a>", "<peer-b>"],
-  "allowed_outbound_peers": ["<peer-a>", "<peer-b>"]
+  "allowed_outbound_peers": ["<peer-a>", "<peer-b>"],
+  "rate_limit": {
+    "per_peer_per_minute": 10,
+    "global_per_minute": 30
+  }
 }
 ```
 
@@ -373,8 +382,11 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 | `log_verbose` | bool | `false` | Include truncated message preview in log (debugging only) |
 | `mcs_enabled` | bool | `false` | Enable malicious content scanning (v0.2) |
 | `mcs_model` | string | `"sonnet"` | Model for MCS subagent when enabled |
+| `allowed_inbound_sessions` | string[] | `["main", "antenna"]` | Allowed inbound target sessions (segment matching supported) |
 | `allowed_inbound_peers` | string[] | `[]` | Peers allowed to send messages to this host |
 | `allowed_outbound_peers` | string[] | `[]` | Peers this host is allowed to send to |
+| `rate_limit.per_peer_per_minute` | int | `10` | Per-peer inbound throttle |
+| `rate_limit.global_per_minute` | int | `30` | Global inbound throttle |
 
 ---
 
@@ -383,15 +395,19 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 ```json
 {
   "<local-host-id>": {
-    "url": "https://<local-tailscale-hostname>",
-    "token_file": "/path/to/secrets/hooks_token",
+    "url": "https://<local-reachable-hostname>",
+    "token_file": "secrets/hooks_token_<local-host-id>",
+    "peer_secret_file": "secrets/antenna-peer-<local-host-id>.secret",
+    "exchange_public_key": "age1...",
     "agentId": "antenna",
     "display_name": "My Server",
     "self": true
   },
   "<remote-peer-id>": {
-    "url": "https://<remote-tailscale-hostname>",
-    "token_file": "/path/to/secrets/hooks_token",
+    "url": "https://<remote-reachable-hostname>",
+    "token_file": "secrets/hooks_token_<remote-peer-id>",
+    "peer_secret_file": "secrets/antenna-peer-<remote-peer-id>.secret",
+    "exchange_public_key": "age1...",
     "agentId": "antenna",
     "display_name": "My Laptop"
   }
@@ -402,11 +418,69 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 
 | Field | Required | Description |
 |---|---|---|
-| `url` | Yes | Peer's hook base URL (Tailscale Serve HTTPS or direct) |
-| `token_file` | Yes | Path to file containing the shared hooks token (`chmod 600`) |
+| `url` | Yes | Peer's reachable HTTPS hook base URL |
+| `token_file` | Yes | Path to file containing that peer's hook bearer token (`chmod 600`) |
+| `peer_secret_file` | No | Path to file containing that peer's runtime identity secret (`chmod 600`) |
+| `exchange_public_key` | No | Peer's `age` public key for Layer A encrypted bootstrap exchange |
 | `agentId` | No | Agent ID to target on this peer (default: from `antenna-config.json`) |
 | `display_name` | No | Human-readable name for log entries and delivery headers |
 | `self` | No | `true` for the local host entry (used to auto-populate `reply_to`) |
+
+---
+
+## 8.1 Layer A Encrypted Bootstrap Exchange
+
+Layer A is the preferred onboarding and secret-exchange mechanism for Antenna peers.
+
+### Purpose
+
+Establish or refresh peer trust material without pasting raw secrets into chat by default.
+
+The encrypted bootstrap bundle carries:
+- sender peer ID
+- sender reachable endpoint URL
+- sender relay agent ID
+- sender hook bearer token
+- sender runtime identity secret
+- sender exchange public key
+- bundle metadata (`generated_at`, `expires_at`, `bundle_id`, optional `notes`)
+
+The bundle is encrypted with the recipient's `age` public key, armored to plain text, and can be delivered over email or any other transport. Email is convenience transport only — not part of the trust model.
+
+### Commands
+
+```bash
+antenna peers exchange keygen [--force]
+antenna peers exchange pubkey [--bare]
+antenna peers exchange initiate <peer-id> [--pubkey <age1...>] [--print] [--send-email --email <addr>]
+antenna peers exchange import [file|-] [--yes]
+antenna peers exchange reply <peer-id> [options]
+```
+
+### Operational model
+
+1. Each host generates a local exchange keypair with `age-keygen`.
+2. The sender obtains the recipient's exchange public key.
+3. `initiate` creates an encrypted armored bootstrap bundle.
+4. The recipient runs `import`, sees a preview, and explicitly confirms allowlist updates before writes occur.
+5. The recipient may then run `reply` to reciprocate with its own bootstrap bundle.
+
+### Dependencies and fallback
+
+- Secure Layer A flow requires `age` and `age-keygen`.
+- Optional direct email send requires `himalaya`.
+- If `age` is unavailable, encrypted bundle flows must fail clearly with install guidance.
+- Legacy raw-secret import/export remains available for compatibility but is explicitly weaker and manual.
+
+### Legacy/manual compatibility
+
+```bash
+antenna peers exchange <peer-id> --export
+antenna peers exchange <peer-id> --import <file>
+antenna peers exchange <peer-id> --import-value <hex>
+```
+
+These legacy commands exchange the runtime identity secret only. They do not provide the full encrypted bootstrap experience and should be treated as fallback paths.
 
 ---
 
@@ -433,10 +507,12 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 
 | Concern | Mitigation |
 |---|---|
-| Unauthorized relay | Hook token required; `from` validated against `allowed_inbound_peers` |
-| Session injection | `target_session` validated by script; patterns restricted |
-| Token storage | Tokens in files with `chmod 600`; referenced by path, never inline |
-| Network exposure | Tailscale-only (both hosts on same tailnet); HTTPS via Tailscale Serve |
+| Unauthorized relay | Hook bearer token required; claimed sender validated against `allowed_inbound_peers` |
+| Sender identity spoofing | Per-peer runtime identity secret checked when configured |
+| Session injection | `target_session` validated by script against `allowed_inbound_sessions` |
+| Token/secret storage | Tokens and secrets live in files with `chmod 600`; referenced by path, never inline in config |
+| Network exposure | Each peer exposes a reachable HTTPS endpoint; Tailscale Funnel, reverse proxy, VPS/domain-hosted HTTPS, or equivalent all work |
+| Rate-limit abuse | Per-peer and global inbound throttles reject bursts before delivery |
 | Prompt injection via message body | Message body passed verbatim — never interpreted by relay agent. MCS subagent (v0.2) for additional scanning. |
 | Relay agent manipulation | Agent has no skills, no file write, no personality. Minimal attack surface. |
 | Replay attacks | Timestamp logged for audit; TTL enforcement deferred to v0.2 |
@@ -741,26 +817,31 @@ antenna test-suite [options]
 | 1.0.2 | 2026-03-30 | Three-tier test suite (§18): Tier A script validation, Tier B/C direct model API evaluation, multi-model comparison, structured reports, multiple output formats. |
 | 1.0.3 | 2026-03-30 | Enriched test messages with forensic metadata (model, host, timestamp, tier, purpose). |
 | 1.0.4 | 2026-03-30 | Native Anthropic Messages API + Google Gemini generateContent API support in test suite. 7 provider families. |
+| 1.0.5 | 2026-03-30 | Security framing on relayed messages plus inbound session allowlist. |
+| 1.0.6 | 2026-03-30 | Per-peer and global rate limiting. |
+| 1.0.7 | 2026-03-30 | Token/secret permission audit in `antenna status`; log-value sanitization in relay handling. |
+| 1.0.8 | 2026-03-30 | Onboarding fixes: self ID seeded into inbound/outbound allowlists; exchange wizard ordering improved. |
+| 1.0.10 | 2026-04-01 | Layer A encrypted bootstrap exchange implemented with `age`, optional Himalaya delivery, import preview/confirmation, peer `exchange_public_key`, and legacy raw-secret fallback retained. |
 
 ---
 
 ## 19. Roadmap — Future Features
 
-### 19.1 Encryption (end-to-end, instance-to-instance)
+### 19.1 Encrypted Bootstrap Exchange
 
-**Status:** Proposed
+**Status:** Implemented (Layer A)
 
-**Problem:** Current relay traffic is encrypted in transit via Tailscale (WireGuard), but messages are plaintext at rest in logs, in the webhook payload between gateway hops, and in session history. If Antenna expands beyond a private two-host tailnet — or if logs/backups are stored on shared infrastructure — message confidentiality depends entirely on transport and host security.
+Layer A encrypted bootstrap exchange now exists and is the preferred setup path.
 
-**Questions to resolve:**
-- **Scope:** Encrypt only the message body, or the full envelope (including sender/peer metadata)?
-- **Key management:** Pre-shared symmetric keys per peer pair? Asymmetric (each installation generates a keypair, peers exchange public keys during onboarding)? Or defer to Tailscale's existing WireGuard encryption and treat this as defense-in-depth only?
-- **Key exchange:** Manual (copy key into `antenna-peers.json`) vs. automated (an `antenna pair` handshake that exchanges keys over the already-authenticated Tailscale channel)?
-- **Implementation:** GPG/age for simplicity? libsodium via a small helper script? Native OpenSSL?
-- **Log impact:** If messages are encrypted, `antenna.log` metadata-only entries stay useful, but `--verbose` log mode would show ciphertext. Acceptable?
-- **Performance:** Encryption/decryption adds milliseconds, not a concern. Key rotation cadence?
+Implemented shape:
+- asymmetric `age` keypair per installation
+- peer registry support for `exchange_public_key`
+- encrypted armored bootstrap bundles created by `antenna peers exchange initiate`
+- import preview plus explicit allowlist confirmation before writes
+- optional Himalaya delivery for convenience
+- legacy raw-secret fallback retained for compatibility
 
-**Recommendation (initial):** Start with **asymmetric keypairs per installation** (generated during setup, public key shared in `antenna-peers.json`). Encrypt only the message body within the envelope — metadata (sender, timestamp, session target) stays cleartext for routing/logging. Use `age` (modern, simple, no GPG complexity). This gives meaningful defense-in-depth on top of Tailscale without complicating peer management.
+What remains future work is not bootstrap exchange itself, but deeper content-level encryption of relayed message payloads after peers are already paired.
 
 ### 19.2 Invite Message (peer onboarding)
 

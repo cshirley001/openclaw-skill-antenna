@@ -37,14 +37,18 @@ Usage:
   antenna msg <peer> [message]               Quick send (plain host mode by default)
 
   antenna peers list                         List known peers
-  antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--display-name <name>]
+  antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>] [--display-name <name>]
   antenna peers remove <id>
   antenna peers test <id>                    Test connectivity to a peer
   antenna peers generate-secret <id>         Generate a per-peer auth secret
-  antenna peers exchange <id>                Guided secret exchange with a peer
-  antenna peers exchange <id> --import <file>     Quick import from file
-  antenna peers exchange <id> --import-value <hex> Quick import from value
-  antenna peers exchange <id> --export       Print your identity secret for copy
+  antenna peers exchange keygen [--force]    Generate local age exchange keypair
+  antenna peers exchange pubkey [--bare]     Show local age exchange public key
+  antenna peers exchange initiate <id> ...   Create encrypted bootstrap bundle
+  antenna peers exchange import [file|-]     Import encrypted bootstrap bundle
+  antenna peers exchange reply <id> ...      Create reciprocal encrypted bundle
+  antenna peers exchange <id> --import <file>      Legacy raw-secret import
+  antenna peers exchange <id> --import-value <hex> Legacy raw-secret import by value
+  antenna peers exchange <id> --export             Legacy raw-secret export
 
   antenna config show                        Show current configuration
   antenna config set <key> <value>           Update a config value
@@ -188,18 +192,19 @@ cmd_peers() {
     list)
       echo "Known peers:"
       echo ""
-      jq -r 'to_entries[] | "  \(.key)\(if .value.self then " (self)" else "" end)\n    URL:   \(.value.url)\n    Agent: \(.value.agentId // "antenna")\n    Name:  \(.value.display_name // "—")\n"' "$PEERS_FILE"
+      jq -r 'to_entries[] | "  \(.key)\(if .value.self then " (self)" else "" end)\n    URL:   \(.value.url)\n    Agent: \(.value.agentId // "antenna")\n    Name:  \(.value.display_name // "—")\n    Exchange key: \(if .value.exchange_public_key then "set" else "—" end)\n"' "$PEERS_FILE"
       ;;
 
     add)
-      local id="" url="" token_file="" display_name="" peer_secret_file=""
-      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>]}"
+      local id="" url="" token_file="" display_name="" peer_secret_file="" exchange_public_key=""
+      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>]}"
       shift
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --url)              url="$2"; shift 2 ;;
           --token-file)       token_file="$2"; shift 2 ;;
           --peer-secret-file) peer_secret_file="$2"; shift 2 ;;
+          --exchange-public-key) exchange_public_key="$2"; shift 2 ;;
           --display-name)     display_name="$2"; shift 2 ;;
           *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
@@ -209,12 +214,15 @@ cmd_peers() {
       fi
       local tmp
       tmp=$(mktemp)
-      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" --arg psf "$peer_secret_file" \
-        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end), peer_secret_file: (if $psf == "" then null else $psf end)}' \
+      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" --arg psf "$peer_secret_file" --arg xpk "$exchange_public_key" \
+        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end), peer_secret_file: (if $psf == "" then null else $psf end), exchange_public_key: (if $xpk == "" then null else $xpk end)}' \
         "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
       echo "Added peer: $id ($url)"
       if [[ -n "$peer_secret_file" ]]; then
         echo "Per-peer secret: $peer_secret_file"
+      fi
+      if [[ -n "$exchange_public_key" ]]; then
+        echo "Exchange public key: set"
       fi
       ;;
 
@@ -290,7 +298,7 @@ cmd_peers() {
 
     *)
       echo "Unknown peers subcommand: $subcmd" >&2
-      echo "Usage: antenna peers list|add|remove|test" >&2
+      echo "Usage: antenna peers list|add|remove|test|exchange|generate-secret" >&2
       exit 1
       ;;
   esac
@@ -411,6 +419,16 @@ cmd_status() {
   sessions=$(jq -r '.allowed_inbound_sessions // ["main","antenna"] | join(", ")' "$CONFIG_FILE" 2>/dev/null || echo "main, antenna")
   echo "Session allowlist: $sessions"
 
+  local exchange_pub_file exchange_key_file exchange_pub_status
+  exchange_key_file="$SKILL_DIR/secrets/antenna-exchange.agekey"
+  exchange_pub_file="$SKILL_DIR/secrets/antenna-exchange.agepub"
+  if [[ -f "$exchange_key_file" && -f "$exchange_pub_file" ]]; then
+    exchange_pub_status="configured"
+  else
+    exchange_pub_status="not configured"
+  fi
+  echo "Layer A exchange keys: $exchange_pub_status"
+
   # Log stats
   if [[ -f "$LOG_FILE" ]]; then
     local total_lines last_entry
@@ -483,7 +501,30 @@ cmd_status() {
         fi
       fi
     fi
+
+    local xpk
+    xpk=$(jq -r --arg p "$peer_id" '.[$p].exchange_public_key // empty' "$PEERS_FILE" 2>/dev/null)
+    if [[ -n "$xpk" ]]; then
+      echo "  ✓  $peer_id: exchange public key present"
+    else
+      echo "  ⚠  $peer_id: no exchange public key recorded (encrypted Layer A bootstrap not ready)"
+      warnings=$((warnings + 1))
+    fi
   done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
+
+  if [[ -f "$exchange_key_file" ]]; then
+    local ek_perms
+    ek_perms=$(stat -c '%a' "$exchange_key_file" 2>/dev/null || stat -f '%Lp' "$exchange_key_file" 2>/dev/null || echo "unknown")
+    if [[ "$ek_perms" == "600" || "$ek_perms" == "400" ]]; then
+      echo "  ✓  local exchange private key permissions OK ($ek_perms)"
+    else
+      echo "  ⚠  local exchange private key too permissive ($ek_perms) — should be 600"
+      warnings=$((warnings + 1))
+    fi
+  else
+    echo "  ⚠  local exchange private key missing ($exchange_key_file)"
+    warnings=$((warnings + 1))
+  fi
 
   # Check config file itself
   if [[ -f "$CONFIG_FILE" ]]; then

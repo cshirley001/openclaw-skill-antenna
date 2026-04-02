@@ -2,6 +2,46 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.0.10] — 2026-04-01
+
+### Summary
+Layer A encrypted bootstrap exchange implemented and docs synced to the current transport/trust model.
+
+### Added
+- **Layer A encrypted bootstrap exchange** in `scripts/antenna-exchange.sh` using `age` armored bundles.
+- New exchange commands:
+  - `antenna peers exchange keygen`
+  - `antenna peers exchange pubkey`
+  - `antenna peers exchange initiate <peer-id>`
+  - `antenna peers exchange import [file|-]`
+  - `antenna peers exchange reply <peer-id>`
+- **Import preview + confirmation** before applying allowlist changes.
+- **Peer registry support for `exchange_public_key`**.
+- **Optional Himalaya direct-send convenience** for bootstrap bundles.
+
+### Changed
+- `scripts/antenna-exchange.sh` rewritten from the older raw-secret wizard into a dispatcher that supports encrypted bundle exchange plus explicit legacy fallback.
+- `bin/antenna` help text updated for the new exchange flow and peer-add support for `--exchange-public-key`.
+- `antenna status` now reports local Layer A key presence and warns when peers lack exchange public keys.
+- `docs/ANTENNA-RELAY-FSD.md` and `SKILL.md` updated to reflect:
+  - reachable HTTPS peer model,
+  - layered trust (`url` + hook token + per-peer identity secret),
+  - Layer A encrypted onboarding,
+  - current config and peer-registry fields.
+
+### Fixed
+- `scripts/antenna-exchange.sh` key generation path no longer uses a pre-created temporary file with `age-keygen -o`, which caused `keygen` to fail during functional verification. It now generates inside a temporary directory with fresh output paths.
+
+### Compatibility
+- Legacy raw-secret commands remain available:
+  - `antenna peers exchange <peer-id> --export`
+  - `antenna peers exchange <peer-id> --import <file>`
+  - `antenna peers exchange <peer-id> --import-value <hex>`
+
+### Notes
+- Secure Layer A requires `age` / `age-keygen`.
+- Himalaya is optional; email remains convenience transport only, not part of the trust model.
+
 ## [1.0.8] — 2026-03-30
 
 ### Summary
