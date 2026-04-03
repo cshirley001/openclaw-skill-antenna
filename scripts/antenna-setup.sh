@@ -460,8 +460,18 @@ if [[ -n "$GATEWAY_CFG" ]]; then
     fi
   done
 
+  do_auto_register=false
   if [[ "$INTERACTIVE" == "true" ]]; then
     if prompt_yn "Automatically register Antenna agent and enable hooks in gateway config?" "y"; then
+      do_auto_register=true
+    fi
+  else
+    # Non-interactive: always auto-register when gateway config is found
+    do_auto_register=true
+    info "Auto-registering Antenna agent and hooks in gateway config..."
+  fi
+
+  if [[ "$do_auto_register" == "true" ]]; then
       # Back up again right before editing
       cp "$GATEWAY_CFG" "${GATEWAY_CFG}.antenna-pre-register-$(date +%Y%m%d-%H%M%S)"
 
@@ -513,7 +523,6 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         warn "Restoring from backup..."
         cp "${GATEWAY_CFG}.antenna-backup" "$GATEWAY_CFG" 2>/dev/null || true
       fi
-    fi
   fi
 fi
 

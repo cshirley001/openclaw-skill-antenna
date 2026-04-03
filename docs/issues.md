@@ -151,3 +151,39 @@ so the wrong token got sent to peers → AUTH FAILED.
 Non-interactive mode now handles `--token-file auto` and missing token files by:
 1. Trying autodiscovery from gateway config
 2. Falling back to `openssl rand -hex 24` generation
+
+## Issue #13: Email transport garbles base64 bundle → decrypt fails on import
+
+**Found:** 2026-04-03 (meat test round 4 — email reply from BETTYXIX to Corey, copy-pasted into file)
+**Severity:** UX — email inline body corrupts bundle during copy-paste
+**Status:** Fixed in v1.0.14
+
+### Problem
+When a bootstrap bundle is sent as inline email body text and the recipient copy-pastes it into a file,
+email client rendering (line wrapping, encoding changes, whitespace) can corrupt the base64 encoding.
+`age -d` then fails with "no identity matched any of the recipients" — indistinguishable from a key mismatch.
+
+### Fix
+`send_bundle_email()` now sends the bundle as a **file attachment** (via himalaya MML multipart)
+instead of inline body text. The email body contains only import instructions and a note to use the
+attached file directly. File attachments are binary-safe and immune to email rendering corruption.
+
+## Issue #14: Non-interactive setup skips gateway auto-registration
+
+**Found:** 2026-04-03 (meat test rounds 2–3)
+**Severity:** UX gap
+**Status:** Fixed in v1.0.14
+
+### Fix
+Non-interactive mode now auto-registers the Antenna agent and hooks in gateway config
+whenever the gateway config file is found, without prompting.
+
+## Issue #16: age not listed as dependency in README
+
+**Found:** 2026-04-03 (meat test — age missing on BETTYXX)
+**Severity:** Documentation
+**Status:** Fixed in v1.0.14
+
+### Fix
+Added Dependencies section to README listing jq, curl, openssl (required), age (required for
+Layer A exchange), and himalaya (optional for email send).

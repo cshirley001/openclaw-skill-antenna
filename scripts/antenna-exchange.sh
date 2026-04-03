@@ -386,26 +386,33 @@ send_bundle_email() {
   fi
   [[ -n "$account" ]] || die "No default Himalaya account found. Pass --account <name>."
 
-  local sid subject raw_file
+  local sid subject raw_file bundle_basename
   sid="$(self_id)"
   subject="Antenna bootstrap bundle from ${sid} for ${peer_id}"
+  bundle_basename="$(basename "$bundle_file")"
   raw_file=$(mktemp)
   cat > "$raw_file" <<EOF
 To: ${email_to}
 Subject: ${subject}
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
 
+<#multipart type=mixed>
+<#part type=text/plain>
 Hello,
 
 Here is an encrypted Antenna Layer A bootstrap bundle from ${sid}.
 
 To import it:
-1. Save the armored block below to a file
-2. Run: antenna peers exchange import <that-file>
-3. If you do not have age installed yet, either install age or request the legacy/manual fallback
+1. Save the attached .age.txt file
+2. Run: antenna peers exchange import <saved-file>
+3. If you do not have age installed yet: apt install age / brew install age
 
+Important: Import the attached FILE directly — do not copy-paste the
+bundle text, as email formatting may corrupt the base64 encoding.
+<#/part>
+<#part type=application/octet-stream filename=${bundle_basename} disposition=attachment>
 $(cat "$bundle_file")
+<#/part>
+<#/multipart>
 EOF
   himalaya message send -a "$account" "$(cat "$raw_file")" >/dev/null
   rm -f "$raw_file"

@@ -21,6 +21,19 @@ Send messages between OpenClaw instances using the built-in `/hooks/agent` webho
 4. Per-peer identity secrets for sender authentication (generated during `antenna setup` / `antenna peers exchange`)
 5. The `antenna` agent registered on each instance
 
+### Dependencies
+
+Required (setup will check for these):
+- **jq** — JSON processing (`apt install jq` / `brew install jq`)
+- **curl** — HTTP requests
+- **openssl** — secret generation
+
+Required for encrypted peer exchange (Layer A):
+- **age** — modern file encryption (`apt install age` / `brew install age` / [github.com/FiloSottile/age](https://github.com/FiloSottile/age))
+
+Optional:
+- **himalaya** — CLI email client, used by `--send-email` to send bootstrap bundles as email attachments
+
 ### Install & Configure
 
 1. Copy or install the skill into your OpenClaw `skills/antenna/` directory
