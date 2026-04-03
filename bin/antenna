@@ -52,7 +52,10 @@ Usage:
   antenna peers exchange <id> --export             Legacy raw-secret export
 
   antenna config show                        Show current configuration
-  antenna config set <key> <value>           Update a config value
+  antenna config set <key> <value>           Update a config value (syncs relay_agent_model to gateway)
+
+  antenna model show                         Show current relay model
+  antenna model set <model>                  Set relay model (syncs to gateway + restarts)
 
   antenna log [--tail <n>]                   View transaction log (default: last 20)
   antenna log --since <duration>             Show entries from last N minutes/hours
@@ -333,6 +336,44 @@ cmd_peers() {
   esac
 }
 
+_sync_relay_model_to_gateway() {
+  local new_model="$1"
+  local gateway_cfg=""
+  for candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+    if [[ -f "$candidate" ]]; then
+      gateway_cfg="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$gateway_cfg" ]]; then
+    echo "⚠  Gateway config not found — skipping gateway sync. Update manually."
+    return
+  fi
+
+  local has_antenna
+  has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$gateway_cfg" 2>/dev/null || echo "0")
+  if [[ "$has_antenna" -eq 0 ]]; then
+    echo "⚠  Antenna agent not registered in gateway config ($gateway_cfg) — skipping gateway sync."
+    return
+  fi
+
+  local tmp
+  tmp=$(mktemp)
+  jq --arg model "$new_model" '
+    .agents.list = [.agents.list[] | if .id == "antenna" then .model = $model else . end]
+  ' "$gateway_cfg" > "$tmp" && mv "$tmp" "$gateway_cfg"
+  echo "✓  Updated gateway config: antenna agent model → $new_model"
+
+  if command -v openclaw &>/dev/null 2>&1; then
+    echo "↻  Restarting gateway..."
+    openclaw gateway restart
+    echo "✓  Gateway restarted"
+  else
+    echo "⚠  openclaw not found in PATH — restart gateway manually: openclaw gateway restart"
+  fi
+}
+
 cmd_config() {
   local subcmd="${1:-show}"
   shift || true
@@ -360,11 +401,40 @@ cmd_config() {
 
       mv "$tmp" "$CONFIG_FILE"
       echo "Set $key = $value"
+
+      # When setting the relay model, also sync to gateway config and restart
+      if [[ "$key" == "relay_agent_model" ]]; then
+        _sync_relay_model_to_gateway "$value"
+      fi
       ;;
 
     *)
       echo "Unknown config subcommand: $subcmd" >&2
       echo "Usage: antenna config show|set" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_model() {
+  local subcmd="${1:-show}"
+  shift || true
+
+  case "$subcmd" in
+    show)
+      local model
+      model=$(jq -r '.relay_agent_model // "unset"' "$CONFIG_FILE" 2>/dev/null || echo "unset")
+      echo "Relay model: $model"
+      ;;
+
+    set)
+      local model="${1:?Usage: antenna model set <model>}"
+      cmd_config set relay_agent_model "$model"
+      ;;
+
+    *)
+      echo "Unknown model subcommand: $subcmd" >&2
+      echo "Usage: antenna model show|set <model>" >&2
       exit 1
       ;;
   esac
@@ -596,6 +666,7 @@ case "$COMMAND" in
   msg)      cmd_msg "$@" ;;
   peers)    cmd_peers "$@" ;;
   config)   cmd_config "$@" ;;
+  model)    cmd_model "$@" ;;
   log)      cmd_log "$@" ;;
   status)   cmd_status ;;
   test)        cmd_test "$@" ;;

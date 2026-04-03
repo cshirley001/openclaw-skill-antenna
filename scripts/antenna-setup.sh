@@ -83,7 +83,7 @@ Non-interactive:
     --display-name "My Host (Server)" \
     --url "https://myhost.tailXXXXX.ts.net" \
     --agent-id betty \
-    --model "openai/gpt-5.4" \
+    --model "openai/gpt-5.4-nano-2026-03-17" \
     --token-file /path/to/hooks_token \
     [--force]
 
@@ -148,7 +148,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "    1. Your OpenClaw host ID (usually your hostname)"
   echo "    2. Your reachable HTTPS hook URL"
   echo "    3. Your primary agent ID (e.g., 'betty')"
-  echo "    4. A relay model (e.g., 'openai/gpt-5.4')"
+  echo "    4. A relay model (e.g., 'openai/gpt-5.4-nano-2026-03-17')"
   echo "    5. Path to your OpenClaw hooks bearer token file"
   echo ""
 fi
@@ -183,8 +183,63 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   header "Step 4/6 — Relay Model"
   info "The model used by the Antenna relay agent for tool dispatch."
   info "Use a full provider/model ID (not an alias) for portability."
-  info "Examples: openai/gpt-5.4, openai/gpt-5.4-nano-2026-03-17, anthropic/claude-sonnet-4-20250514"
-  prompt RELAY_MODEL "Relay model" "openai/gpt-5.4"
+  info "Examples: openai/gpt-5.4-nano-2026-03-17, openai/gpt-5.4, anthropic/claude-sonnet-4-20250514"
+
+  # Try to load model aliases from gateway config
+  _alias_names=()
+  _alias_ids=()
+  for _gw_cand in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+    if [[ -f "$_gw_cand" ]]; then
+      while IFS=$'\t' read -r _mid _aname; do
+        [[ -z "$_mid" || -z "$_aname" ]] && continue
+        _alias_ids+=("$_mid")
+        _alias_names+=("$_aname")
+      done < <(jq -r '
+        (.agents.defaults.models // {}) | to_entries[] |
+        select(.value.alias != null and .value.alias != "") |
+        "\(.key)\t\(.value.alias)"
+      ' "$_gw_cand" 2>/dev/null || true)
+      break
+    fi
+  done
+
+  RELAY_MODEL=""
+  if [[ ${#_alias_names[@]} -gt 0 ]]; then
+    echo ""
+    info "Available model aliases from your gateway config:"
+    for _i in "${!_alias_names[@]}"; do
+      echo "    $((_i+1)). ${_alias_names[$_i]} → ${_alias_ids[$_i]}"
+    done
+    echo ""
+    read -rp "$(echo -e "${CYAN}?${NC}  Enter number, full provider/model ID, or press Enter for default [openai/gpt-5.4-nano-2026-03-17]: ")" _relay_input
+    _relay_input="${_relay_input:-openai/gpt-5.4-nano-2026-03-17}"
+    if [[ "$_relay_input" =~ ^[0-9]+$ ]]; then
+      _idx=$((_relay_input - 1))
+      if [[ $_idx -ge 0 && $_idx -lt ${#_alias_ids[@]} ]]; then
+        RELAY_MODEL="${_alias_ids[$_idx]}"
+        info "Selected: ${_alias_names[$_idx]} → $RELAY_MODEL"
+      else
+        warn "Invalid selection, using as model ID: $_relay_input"
+        RELAY_MODEL="$_relay_input"
+      fi
+    else
+      # Check if input matches an alias name
+      _found_alias=false
+      for _i in "${!_alias_names[@]}"; do
+        if [[ "${_alias_names[$_i]}" == "$_relay_input" ]]; then
+          RELAY_MODEL="${_alias_ids[$_i]}"
+          info "Resolved alias '$_relay_input' → $RELAY_MODEL"
+          _found_alias=true
+          break
+        fi
+      done
+      if [[ "$_found_alias" == "false" ]]; then
+        RELAY_MODEL="$_relay_input"
+      fi
+    fi
+  else
+    prompt RELAY_MODEL "Relay model" "openai/gpt-5.4-nano-2026-03-17"
+  fi
 
   # Token file — try autodiscovery first
   header "Step 5/6 — Hooks Bearer Token"
@@ -252,7 +307,25 @@ else
   HOST_URL="${NI_URL:?--url is required}"
   HOST_URL="${HOST_URL%/}"
   AGENT_ID="${NI_AGENT:?--agent-id is required}"
-  RELAY_MODEL="${NI_MODEL:-openai/gpt-5.4}"
+  RELAY_MODEL="${NI_MODEL:-openai/gpt-5.4-nano-2026-03-17}"
+
+  # Resolve model alias if --model matched an alias name
+  if [[ -n "$NI_MODEL" ]]; then
+    for _gw_cand in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+      if [[ -f "$_gw_cand" ]]; then
+        _resolved=$(jq -r --arg alias "$NI_MODEL" '
+          (.agents.defaults.models // {}) | to_entries[] |
+          select(.value.alias == $alias) | .key
+        ' "$_gw_cand" 2>/dev/null | head -1 || true)
+        if [[ -n "$_resolved" ]]; then
+          RELAY_MODEL="$_resolved"
+          info "Resolved model alias '$NI_MODEL' → $RELAY_MODEL"
+        fi
+        break
+      fi
+    done
+  fi
+
   TOKEN_FILE="${NI_TOKEN:?--token-file is required}"
 
   # Non-interactive: try autodiscovery or auto-generate if token-file is "auto" or missing

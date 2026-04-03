@@ -4,6 +4,18 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.0.16] — 2026-04-03
+### Added
+- `antenna model show` / `antenna model set <model>` — convenience commands for relay model management.
+- `antenna config set relay_agent_model` now syncs the model to the gateway config (`~/.openclaw/openclaw.json`) and restarts the gateway automatically.
+- Setup wizard Step 4/6 now reads model aliases from the user's gateway config and presents a numbered picker during interactive install.
+- Non-interactive `--model` flag also resolves alias names to full provider/model IDs.
+
+### Changed
+- Default relay model changed from `openai/gpt-5.4` to `openai/gpt-5.4-nano-2026-03-17` (cheaper, more mechanical — better suited for relay duty).
+- Updated all example/help text to reflect the new default.
+
+## [1.0.15] — 2026-04-03
 ### Added
 - New `antenna uninstall` command for conservative cleanup/removal of Antenna installs.
 
