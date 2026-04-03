@@ -120,3 +120,34 @@ chmod 600 secrets/hooks_token_<peer-id>
 
 ### Fix scope
 `scripts/antenna-exchange.sh`, import logic — force peer-specific token path on every import.
+
+## Issue #12: Self peer token_file uses arbitrary absolute path instead of canonical relative path
+
+**Found:** 2026-04-03 (round 2 meat test — BETTYXIX stale self token caused wrong token in exchange bundle)
+**Severity:** Bug — exchange bundles package wrong hooks token, causing AUTH FAILED on import
+**Status:** Fixed in v1.0.13
+
+### Problem
+Setup stored whatever path the user provided (or autodiscovered) as the self peer's `token_file` in
+`antenna-peers.json`. This could be an arbitrary absolute path like `/home/corey/clawd/secrets/hooks_token`.
+
+When the gateway token later changed (e.g. after uninstall/reinstall), the file at that absolute path
+went stale. `build_plaintext_bundle()` reads `self.token_file` to package into exchange bundles,
+so the wrong token got sent to peers → AUTH FAILED.
+
+### Fix
+- Setup now normalizes the self peer's token_file to the canonical relative path
+  `secrets/hooks_token_<host-id>` in all cases (interactive and non-interactive).
+- If the user provides a different path, the token is copied to the canonical location.
+- Non-interactive mode now supports `--token-file auto` for autodiscovery/auto-generation.
+
+## Issue #12b: Non-interactive setup doesn't autodiscover or generate tokens
+
+**Found:** 2026-04-03 (round 2 — `--token-file auto` was passed but setup accepted it as a literal path)
+**Severity:** UX bug
+**Status:** Fixed in v1.0.13
+
+### Fix
+Non-interactive mode now handles `--token-file auto` and missing token files by:
+1. Trying autodiscovery from gateway config
+2. Falling back to `openssl rand -hex 24` generation

@@ -199,7 +199,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
       DISCOVERED_TOKEN=$(jq -r '.hooks.token // empty' "$gw_candidate" 2>/dev/null || true)
       if [[ -n "$DISCOVERED_TOKEN" ]]; then
         info "Found hooks token in gateway config ($gw_candidate)"
-        local suggested_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
+        suggested_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
         if prompt_yn "Create token file at $suggested_path from gateway config?" "y"; then
           mkdir -p "$SECRETS_DIR"
           printf '%s' "$DISCOVERED_TOKEN" > "$suggested_path"
@@ -220,7 +220,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
       info "You can find it in ~/.openclaw/openclaw.json under hooks.token"
       echo ""
       if prompt_yn "Generate a new hooks bearer token now?" "y"; then
-        local gen_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
+        gen_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
         mkdir -p "$SECRETS_DIR"
         openssl rand -hex 24 > "$gen_path"
         chmod 600 "$gen_path"
@@ -254,6 +254,31 @@ else
   AGENT_ID="${NI_AGENT:?--agent-id is required}"
   RELAY_MODEL="${NI_MODEL:-openai/gpt-5.4}"
   TOKEN_FILE="${NI_TOKEN:?--token-file is required}"
+
+  # Non-interactive: try autodiscovery or auto-generate if token-file is "auto" or missing
+  if [[ "$TOKEN_FILE" == "auto" || ! -f "$TOKEN_FILE" ]]; then
+    # Try reading from gateway config first
+    ni_discovered=""
+    for gw_candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+      if [[ -f "$gw_candidate" ]]; then
+        ni_discovered=$(jq -r '.hooks.token // empty' "$gw_candidate" 2>/dev/null || true)
+        [[ -n "$ni_discovered" ]] && break
+      fi
+    done
+    mkdir -p "$SKILL_DIR/secrets"
+    ni_path="$SKILL_DIR/secrets/hooks_token_${HOST_ID}"
+    if [[ -n "$ni_discovered" ]]; then
+      printf '%s' "$ni_discovered" > "$ni_path"
+      chmod 600 "$ni_path"
+      info "Auto-discovered hooks token from gateway config"
+      TOKEN_FILE="$ni_path"
+    else
+      openssl rand -hex 24 > "$ni_path"
+      chmod 600 "$ni_path"
+      info "Auto-generated hooks bearer token: $ni_path"
+      TOKEN_FILE="$ni_path"
+    fi
+  fi
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -308,12 +333,31 @@ jq -n \
 chmod 644 "$CONFIG_FILE"
 ok "Created $CONFIG_FILE"
 
+# ── Normalize self token to canonical path ────────────────────────────────────
+
+CANONICAL_TOKEN_REF="secrets/hooks_token_${HOST_ID}"
+CANONICAL_TOKEN_ABS="$SKILL_DIR/$CANONICAL_TOKEN_REF"
+mkdir -p "$SECRETS_DIR"
+
+if [[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" && "$TOKEN_FILE" != "$CANONICAL_TOKEN_ABS" ]]; then
+  # Copy token contents to canonical location so the self peer always uses
+  # a predictable relative path. This prevents stale absolute paths from
+  # being baked into exchange bundles (Issue #12).
+  cp "$TOKEN_FILE" "$CANONICAL_TOKEN_ABS"
+  chmod 600 "$CANONICAL_TOKEN_ABS"
+  info "Copied token to canonical path: $CANONICAL_TOKEN_REF"
+elif [[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]]; then
+  : # already at canonical path
+elif [[ -n "$TOKEN_FILE" && ! -f "$TOKEN_FILE" ]]; then
+  warn "Token file not found at $TOKEN_FILE — self peer token_file may need manual update later."
+fi
+
 # ── Create peers file with self-peer ─────────────────────────────────────────
 
 jq -n \
   --arg id "$HOST_ID" \
   --arg url "$HOST_URL" \
-  --arg tf "$TOKEN_FILE" \
+  --arg tf "$CANONICAL_TOKEN_REF" \
   --arg dn "$DISPLAY_NAME" \
   --arg psf "secrets/antenna-peer-${HOST_ID}.secret" \
   '{
@@ -422,10 +466,9 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       cp "$GATEWAY_CFG" "${GATEWAY_CFG}.antenna-pre-register-$(date +%Y%m%d-%H%M%S)"
 
       # 1) Enable/merge hooks config
-      local tmp_gw
       tmp_gw=$(mktemp)
       # Read the hooks token from the token file to register it in gateway config
-      local file_token=""
+      file_token=""
       if [[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]]; then
         file_token="$(tr -d '[:space:]' < "$TOKEN_FILE")"
       fi
@@ -444,7 +487,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       ok "Hooks enabled, token registered, and allowlists updated"
 
       # 2) Register antenna agent if not already present
-      local has_antenna
+      has_antenna=""
       has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
       if [[ "$has_antenna" -eq 0 ]]; then
         tmp_gw=$(mktemp)
