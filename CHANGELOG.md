@@ -4,6 +4,20 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.0.18] — 2026-04-03
+### Added
+- Interactive email prompt after bundle creation: when running `initiate` or `reply` interactively with gog or himalaya available, the wizard now offers to email the bundle directly — no `--send-email` flag needed.
+- Multi-method email send: tries `gog` (Gmail API with native `--attach`) first, falls back to `himalaya` (raw MIME via stdin), fails clearly if neither is available.
+
+### Fixed
+- `--send-email` crash: himalaya's mail-parser panicked when raw MIME was passed as a CLI argument; switched to stdin pipe.
+- Missing `From:` header in himalaya MIME path caused "cannot send message without a sender" error.
+
+## [1.0.17] — 2026-04-03
+### Fixed
+- `send_bundle_email()` rewritten to use raw MIME with base64-encoded attachment instead of MML (which crashed himalaya's mail-parser).
+- Added gog as primary email send method with himalaya as fallback.
+
 ## [1.0.16] — 2026-04-03
 ### Added
 - `antenna model show` / `antenna model set <model>` — convenience commands for relay model management.
