@@ -117,6 +117,12 @@ if ! command -v openssl &>/dev/null; then
   exit 1
 fi
 
+if ! command -v age &>/dev/null; then
+  warn "age not found — required for encrypted peer exchange (Layer A)."
+  info "Install with: apt install age / brew install age / https://github.com/FiloSottile/age"
+  info "Setup will continue, but you will need age for the peer exchange flow."
+fi
+
 # Check for existing config
 if [[ -f "$CONFIG_FILE" && "$NI_FORCE" != "true" ]]; then
   if [[ "$INTERACTIVE" == "true" ]]; then
@@ -212,8 +218,20 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     else
       warn "Could not auto-detect hooks token from gateway config."
       info "You can find it in ~/.openclaw/openclaw.json under hooks.token"
+      echo ""
+      if prompt_yn "Generate a new hooks bearer token now?" "y"; then
+        local gen_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
+        mkdir -p "$SECRETS_DIR"
+        openssl rand -hex 24 > "$gen_path"
+        chmod 600 "$gen_path"
+        ok "Generated token file: $gen_path"
+        info "You will need to add this token to your gateway hooks.token config."
+        TOKEN_FILE="$gen_path"
+      fi
     fi
-    prompt TOKEN_FILE "Token file path" ""
+    if [[ -z "$TOKEN_FILE" ]]; then
+      prompt TOKEN_FILE "Token file path" ""
+    fi
   fi
 
   if [[ -n "$TOKEN_FILE" && ! -f "$TOKEN_FILE" ]]; then
@@ -406,13 +424,24 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       # 1) Enable/merge hooks config
       local tmp_gw
       tmp_gw=$(mktemp)
-      jq --arg aid "antenna" --arg prefix "hook:antenna" '
+      # Read the hooks token from the token file to register it in gateway config
+      local file_token=""
+      if [[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]]; then
+        file_token="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+      fi
+
+      jq --arg aid "antenna" --arg prefix "hook:antenna" --arg agent_prefix "agent:${AGENT_ID}:" --arg file_token "$file_token" '
         .hooks.enabled = true |
         .hooks.allowRequestSessionKey = true |
         .hooks.allowedAgentIds = ((.hooks.allowedAgentIds // []) | if (index($aid) | not) then . + [$aid] else . end) |
-        .hooks.allowedSessionKeyPrefixes = ((.hooks.allowedSessionKeyPrefixes // []) | if (index($prefix) | not) then . + [$prefix] else . end)
+        .hooks.allowedSessionKeyPrefixes = (
+          (.hooks.allowedSessionKeyPrefixes // [])
+          | if (index($prefix) | not) then . + [$prefix] else . end
+          | if (index($agent_prefix) | not) then . + [$agent_prefix] else . end
+        ) |
+        (if $file_token != "" then .hooks.token = $file_token else . end)
       ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-      ok "Hooks enabled and allowlists updated"
+      ok "Hooks enabled, token registered, and allowlists updated"
 
       # 2) Register antenna agent if not already present
       local has_antenna
@@ -452,8 +481,9 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "     hooks:"
   echo "       enabled: true"
   echo "       allowRequestSessionKey: true"
+  echo "       token: <contents of your hooks token file>"
   echo "       allowedAgentIds: [\"antenna\"]"
-  echo "       allowedSessionKeyPrefixes: [\"hook:antenna\"]"
+  echo "       allowedSessionKeyPrefixes: [\"hook:antenna\", \"agent:${AGENT_ID}:\"]"
   echo ""
   echo -e "  ${BOLD}2. Register the Antenna agent:${NC}"
   echo "     agents:"
@@ -480,14 +510,26 @@ else
   echo "     antenna doctor"
   echo "  3. Restart the gateway: openclaw gateway restart"
 fi
-echo "  4. Add a remote peer:"
-echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
-echo "  5. Exchange identity secrets with that peer:"
-echo "     antenna peers exchange <peer-id>"
-echo "  6. Test connectivity:"
+echo ""
+echo -e "  ${BOLD}═══ Pairing with a Remote Peer ═══${NC}"
+echo ""
+echo "  4. Generate your age exchange keypair (if not already done):"
+echo "     antenna peers exchange keygen"
+echo "  5. Share your public key with the remote peer (safe to share openly):"
+echo "     antenna peers exchange pubkey --bare"
+echo "  6. Create an encrypted bootstrap bundle for the remote peer:"
+echo "     antenna peers exchange initiate <peer-id> --pubkey <their-age-pubkey>"
+echo "  7. Send the bundle file to the remote peer (email, scp, paste, etc.)"
+echo "  8. Import their reciprocal bundle when you receive it:"
+echo "     antenna peers exchange import <bundle-file>"
+echo "  9. Test connectivity:"
 echo "     antenna peers test <peer-id>"
-echo "  7. Send your first message:"
-echo "     antenna msg <peer-id> \"Hello from the other side!\""
+echo "  10. Send your first message:"
+echo "      antenna msg <peer-id> \"Hello from the other side!\""
+echo ""
+echo "  Manual/legacy alternative (if age is unavailable):"
+echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
+echo "     antenna peers exchange <peer-id> --legacy"
 echo ""
 echo "  Notes:"
 echo "    - antenna-config.json and antenna-peers.json are local runtime files"

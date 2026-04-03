@@ -710,14 +710,13 @@ import_bundle() {
 
   existing_url="$(peer_field "$peer_id" 'url')"
   existing_name="$(peer_field "$peer_id" 'display_name')"
-  existing_token_ref="$(peer_field "$peer_id" 'token_file')"
-  existing_secret_ref="$(peer_field "$peer_id" 'peer_secret_file')"
   existing_agent="$(peer_field "$peer_id" 'agentId')"
 
-  token_ref="$existing_token_ref"
-  [[ -n "$token_ref" ]] || token_ref="secrets/hooks_token_${peer_id}"
-  secret_ref="$existing_secret_ref"
-  [[ -n "$secret_ref" ]] || secret_ref="secrets/antenna-peer-${peer_id}.secret"
+  # Always use peer-specific paths for imported tokens and secrets.
+  # This prevents stale references from a previous install from causing
+  # the new token to be written to the wrong file (Issue #11).
+  token_ref="secrets/hooks_token_${peer_id}"
+  secret_ref="secrets/antenna-peer-${peer_id}.secret"
 
   token_abs="$(resolve_path "$token_ref")"
   secret_abs="$(resolve_path "$secret_ref")"

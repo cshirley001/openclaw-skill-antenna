@@ -13,3 +13,4 @@ antenna-peers.json
 .DS_Store
 Thumbs.db
 antenna-ratelimit.json
+*.age.txt

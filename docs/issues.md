@@ -1,0 +1,122 @@
+
+## Issue #8: Setup should offer to generate a hooks token when autodiscovery fails
+
+**Found:** 2026-04-03 (meat test, BETTYXX fresh install after uninstall)
+**Severity:** UX / onboarding friction
+**Status:** Open
+
+### Problem
+When `antenna setup` can't auto-detect a hooks token from `gateway.hooks.token` in `openclaw.json` (e.g. after a clean uninstall, or on a brand-new host), it falls through to a manual "Token file path:" prompt with no guidance on how to create one.
+
+A new user at this point has no idea:
+1. What the token is
+2. How to generate one
+3. Where to put the file
+4. What permissions it needs
+
+### Expected behavior
+If autodiscovery fails, setup should offer: **"No hooks token found. Generate a new one?"** → creates `secrets/hooks_token_<host-id>` with `openssl rand -hex 24`, sets `chmod 600`, and pre-fills the path.
+
+### Workaround
+Manually generate before running setup:
+```bash
+mkdir -p ~/clawd/skills/antenna/secrets
+openssl rand -hex 24 > ~/clawd/skills/antenna/secrets/hooks_token_<host-id>
+chmod 600 ~/clawd/skills/antenna/secrets/hooks_token_<host-id>
+```
+Then enter the path at the prompt.
+
+### Fix scope
+`scripts/antenna-setup.sh`, around line 213 — after the "Could not auto-detect" warning, add a `prompt_yn` offering to generate.
+
+## Issue #9: Setup doesn't add relay_agent_id to hooks.allowedAgentIds
+
+**Found:** 2026-04-03 (meat test, BETTYXX fresh install)
+**Severity:** Bug — blocks inbound message delivery
+**Status:** Open
+
+### Problem
+`antenna setup` gateway registration (line ~410-413 of `antenna-setup.sh`) adds the **local agent ID** (`betty`) and `main` to `hooks.allowedAgentIds`, but does not add the **relay agent ID** (`antenna`).
+
+Since inbound Antenna messages are POSTed to `/hooks/agent` with the relay agent ID as the target, the gateway rejects them — effectively breaking all inbound messaging.
+
+### Evidence
+After fresh setup on BETTYXX:
+```json
+"allowedAgentIds": ["betty", "main"]  // missing "antenna"
+```
+`antenna doctor` correctly flags: `✗ hooks.allowedAgentIds does not include "antenna"`
+
+### Expected behavior
+Setup should read `relay_agent_id` from the config it just created and add it to `allowedAgentIds`.
+
+### Fix scope
+`scripts/antenna-setup.sh`, gateway registration jq block — the `$aid` variable should include the relay agent ID, not just the local agent.
+
+### Workaround
+```bash
+jq '.hooks.allowedAgentIds += ["antenna"] | .hooks.allowedAgentIds |= unique' ~/.openclaw/openclaw.json > /tmp/oc-fix.json && mv /tmp/oc-fix.json ~/.openclaw/openclaw.json
+openclaw gateway restart
+```
+
+## Issue #10: Onboarding step order puts manual `peers add` before `peers exchange`
+
+**Found:** 2026-04-03 (meat test, BETTYXX fresh install)
+**Severity:** UX / documentation — confuses the primary onboarding path
+**Status:** Open
+
+### Problem
+Setup's post-install instructions list:
+```
+4. Add a remote peer:  antenna peers add <peer-id> --url <url> --token-file <path>
+5. Exchange identity secrets:  antenna peers exchange <peer-id>
+```
+
+This implies the user must already have the remote peer's hooks token and URL before adding them — but the whole point of `peers exchange` is to securely transmit that information. The exchange bundle contains `from_endpoint_url`, `from_hooks_token`, and peer secret.
+
+As written, a new user hits step 4, doesn't have the remote token, and is stuck.
+
+### Expected flow
+The primary happy path should be:
+1. Both sides run `setup`
+2. Exchange age public keys (out-of-band: paste, email, whatever)
+3. Side A: `peers exchange initiate <peer-id> --recipient-pubkey <age-pub>`
+4. Side B: `peers exchange import <bundle>` → auto-creates peer entry
+5. Side B: `peers exchange reply <peer-id>` → reciprocal bundle
+6. Side A: `peers exchange import <bundle>`
+7. Both: `peers test <peer-id>`
+
+`peers add --url --token-file` should be documented as the **manual/legacy fallback**, not the primary path.
+
+### Fix scope
+- `scripts/antenna-setup.sh` post-install instructions
+- `README.md` quickstart section
+- Possibly: `peers exchange import` should auto-create the peer entry if it doesn't exist yet (needs verification)
+
+## Issue #11: Exchange import may write token to stale/pre-existing path instead of peer-specific file
+
+**Found:** 2026-04-03 (meat test, BETTYXIX importing BETTYXX's reply bundle)
+**Severity:** Bug — causes AUTH FAILED on outbound messages
+**Status:** Open
+
+### Problem
+When importing a reply bundle on a host that already had a prior Antenna installation, the import wrote the peer's hooks token to `/home/corey/clawd/secrets/hooks_token` — a stale path from the old config — instead of creating a peer-specific `secrets/hooks_token_<peer-id>` file.
+
+The result: `peers test` returned `AUTH FAILED: Token rejected (HTTP 401)` because the file contained the wrong token.
+
+### Root cause (likely)
+The import logic may be reusing an existing `token_file` reference from `antenna-peers.json` if the peer entry already existed (from previous install), rather than always generating a fresh peer-specific path.
+
+### Expected behavior
+Import should always write tokens to `secrets/hooks_token_<peer-id>` and update the peer record to point there, regardless of any pre-existing paths.
+
+### Workaround
+Manually create the correct token file and update `antenna-peers.json`:
+```bash
+echo -n '<correct-token>' > secrets/hooks_token_<peer-id>
+chmod 600 secrets/hooks_token_<peer-id>
+# Update token_file in antenna-peers.json to "secrets/hooks_token_<peer-id>"
+```
+
+### Fix scope
+`scripts/antenna-exchange.sh`, import logic — force peer-specific token path on every import.
