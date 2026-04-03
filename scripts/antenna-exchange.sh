@@ -23,6 +23,7 @@ CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 SECRETS_DIR="$SKILL_DIR/secrets"
 EXCHANGE_KEY_FILE="$SECRETS_DIR/antenna-exchange.agekey"
 EXCHANGE_PUB_FILE="$SECRETS_DIR/antenna-exchange.agepub"
+FALLBACK_LEGACY=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -186,9 +187,57 @@ age_available() {
   have_cmd age && have_cmd age-keygen
 }
 
+try_install_age() {
+  # Attempt userland install of age via Homebrew if available
+  local brew_bin=""
+  for candidate in "brew" "/home/linuxbrew/.linuxbrew/bin/brew" "$HOME/.linuxbrew/bin/brew"; do
+    if command -v "$candidate" &>/dev/null 2>&1 || [[ -x "$candidate" ]]; then
+      brew_bin="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$brew_bin" ]]; then
+    info "Installing age via Homebrew ($brew_bin)..."
+    if "$brew_bin" install age 2>&1; then
+      # Ensure brew bin dir is on PATH for the rest of this session
+      local brew_prefix
+      brew_prefix=$("$brew_bin" --prefix 2>/dev/null || dirname "$(dirname "$brew_bin")")
+      export PATH="${brew_prefix}/bin:$PATH"
+      if age_available; then
+        ok "age installed successfully"
+        return 0
+      fi
+    fi
+    warn "Homebrew install of age failed"
+  fi
+  return 1
+}
+
 require_age() {
   age_available && return 0
-  die "age/age-keygen not found. Install age for encrypted Layer A exchange, or use --legacy for the manual fallback."
+
+  # Interactive: offer to install or fall back to legacy
+  if is_tty; then
+    warn "age/age-keygen not found. Required for encrypted Layer A exchange."
+    echo ""
+    if prompt_yn "Install age now? (uses Homebrew if available)" "y"; then
+      if try_install_age; then
+        return 0
+      fi
+      warn "Could not install age automatically."
+      info "Manual install: brew install age  OR  apt install age  OR  https://github.com/FiloSottile/age"
+    fi
+    echo ""
+    if prompt_yn "Use the weaker legacy/manual raw-secret fallback instead?" "n"; then
+      # Signal caller to switch to legacy mode
+      FALLBACK_LEGACY=true
+      return 0
+    fi
+    die "age is required for encrypted exchange. Install it and retry, or use --legacy."
+  else
+    die "age/age-keygen not found. Install age for encrypted Layer A exchange, or use --legacy for the manual fallback."
+  fi
 }
 
 validate_runtime_secret() {
@@ -514,7 +563,12 @@ run_bundle_command() {
     return 0
   fi
 
+  FALLBACK_LEGACY=false
   require_age
+  if [[ "$FALLBACK_LEGACY" == "true" ]]; then
+    legacy_export_runtime_secret "$peer_id"
+    return 0
+  fi
   ensure_exchange_keypair false >/dev/null
 
   recipient_pubkey="$(read_pubkey_arg "$pubkey_arg" "$pubkey_file_arg")"

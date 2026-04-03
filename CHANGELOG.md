@@ -17,6 +17,26 @@ All notable changes to the Antenna skill are documented here.
 - `antenna uninstall` removes Antenna runtime files, logs, test artifacts, Antenna-owned secrets, and Antenna gateway registration entries by default, while leaving the rest of OpenClaw alone.
 - `--purge-skill-dir` is available for true full removal after cleanup.
 
+## [1.0.11] — 2026-04-03
+
+### Summary
+Onboarding hardening: seven rough edges from real first-run experience smoothed out.
+
+### Added
+- **Token autodiscovery** in `antenna setup`: reads `hooks.token` from `~/.openclaw/openclaw.json` and offers to create the token file automatically (Item #2).
+- **Automatic gateway registration** in `antenna setup`: merges hooks config and registers the Antenna agent entry directly into the gateway JSON, with backup-before-edit and JSON validation. Falls back to manual instructions if user declines or gateway config is not found (Item #3).
+- **Schema-aware agent registration**: agent entries omit `systemPrompt` to avoid schema rejection on OpenClaw builds that don't support it inline; uses `agentDir` (not `agentsDir`) to match observed live config schema (Item #4).
+- **Interactive `age` installer** in `antenna peers exchange`: when `age` is missing, offers to install via Homebrew; if install fails or is declined, offers legacy fallback interactively instead of hard-failing (Item #5).
+- **`peers add` allowlist prompt**: after adding a peer, prompts "Add to inbound/outbound allowlists?" (default: yes). Non-interactive mode auto-adds. Prevents the "not in allowed_outbound_peers" surprise (Item #6).
+- **Enhanced auth mismatch diagnostics** in `antenna-relay.sh`: on invalid peer secret, logs prefix/suffix hints of received vs expected values and suggests `antenna peers exchange` resync — without exposing full secrets (Item #7).
+
+### Changed
+- `antenna setup` gateway registration section now prints manual instructions only when auto-registration was declined or unavailable.
+- `antenna setup` next-steps block adapts based on whether auto-registration succeeded.
+
+### Fixed
+- Gateway registration no longer includes `systemPrompt` field that some OpenClaw builds reject (Item #4).
+
 ## [1.0.10] — 2026-04-01
 
 ### Summary

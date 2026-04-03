@@ -180,13 +180,43 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   info "Examples: openai/gpt-5.4, openai/gpt-5.4-nano-2026-03-17, anthropic/claude-sonnet-4-20250514"
   prompt RELAY_MODEL "Relay model" "openai/gpt-5.4"
 
-  # Token file
+  # Token file — try autodiscovery first
   header "Step 5/6 — Hooks Bearer Token"
   info "Path to the file containing your OpenClaw hooks bearer token."
   info "This authenticates HTTP requests to /hooks/agent."
-  prompt TOKEN_FILE "Token file path" ""
 
-  if [[ ! -f "$TOKEN_FILE" ]]; then
+  # Autodiscovery: try reading from gateway config
+  TOKEN_FILE=""
+  DISCOVERED_TOKEN=""
+  for gw_candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
+    if [[ -f "$gw_candidate" ]]; then
+      DISCOVERED_TOKEN=$(jq -r '.hooks.token // empty' "$gw_candidate" 2>/dev/null || true)
+      if [[ -n "$DISCOVERED_TOKEN" ]]; then
+        info "Found hooks token in gateway config ($gw_candidate)"
+        local suggested_path="$SECRETS_DIR/hooks_token_${HOST_ID}"
+        if prompt_yn "Create token file at $suggested_path from gateway config?" "y"; then
+          mkdir -p "$SECRETS_DIR"
+          printf '%s' "$DISCOVERED_TOKEN" > "$suggested_path"
+          chmod 600 "$suggested_path"
+          ok "Created token file: $suggested_path"
+          TOKEN_FILE="$suggested_path"
+        fi
+        break
+      fi
+    fi
+  done
+
+  if [[ -z "$TOKEN_FILE" ]]; then
+    if [[ -n "$DISCOVERED_TOKEN" ]]; then
+      : # token found but user declined file creation; fall through to manual
+    else
+      warn "Could not auto-detect hooks token from gateway config."
+      info "You can find it in ~/.openclaw/openclaw.json under hooks.token"
+    fi
+    prompt TOKEN_FILE "Token file path" ""
+  fi
+
+  if [[ -n "$TOKEN_FILE" && ! -f "$TOKEN_FILE" ]]; then
     warn "Token file not found at: $TOKEN_FILE"
     if prompt_yn "Continue anyway? (you can fix this later)" "y"; then
       true
@@ -346,39 +376,110 @@ echo ""
 
 header "═══ Gateway Registration ═══"
 echo ""
-echo "  Add the following to your OpenClaw gateway config (openclaw.yaml or equivalent):"
-echo ""
-echo -e "  ${BOLD}1. Enable hooks:${NC}"
-echo "     hooks:"
-echo "       enabled: true"
-echo "       allowRequestSessionKey: true"
-echo "       allowedAgentIds: [\"antenna\"]"
-echo "       allowedSessionKeyPrefixes: [\"hook:antenna\"]"
-echo ""
-echo -e "  ${BOLD}2. Register the Antenna agent:${NC}"
-echo "     agents:"
-echo "       - id: antenna"
-echo "         name: Antenna Relay"
-echo "         model: $RELAY_MODEL"
-echo "         systemPrompt: |"
-echo "           You are the Antenna relay agent. Your ONLY job:"
-echo "           1. Run: exec antenna-relay.sh --stdin (pipe the user message to stdin)"
-echo "           2. Parse the JSON output"
-echo "           3. If action=relay: call sessions_send with the sessionKey and message from the output"
-echo "           4. If action=reject: do nothing (message was rejected by the script)"
-echo "           Never interpret, summarize, or modify the message content."
-echo "         agentsDir: $SKILL_DIR/agent"
-echo ""
-echo -e "  ${BOLD}3. Restart your gateway:${NC}"
-echo "     openclaw gateway restart"
+
+# ── Attempt automatic gateway registration ──────────────────────────────────
+AUTO_REGISTERED=false
+if [[ -n "$GATEWAY_CFG" ]]; then
+  # Detect whether the gateway build supports systemPrompt in agent entries
+  # by checking existing agents or trying a conservative approach (omit it)
+  AGENT_ENTRY_FIELDS='{
+    id: "antenna",
+    name: "Antenna Relay",
+    model: $model,
+    agentDir: $agentdir
+  }'
+
+  # Check if openclaw CLI is available for agent/hooks management
+  OPENCLAW_BIN=""
+  for oc_candidate in "openclaw" "$HOME/.local/bin/openclaw" "/usr/local/bin/openclaw"; do
+    if command -v "$oc_candidate" &>/dev/null 2>&1 || [[ -x "$oc_candidate" ]]; then
+      OPENCLAW_BIN="$oc_candidate"
+      break
+    fi
+  done
+
+  if [[ "$INTERACTIVE" == "true" ]]; then
+    if prompt_yn "Automatically register Antenna agent and enable hooks in gateway config?" "y"; then
+      # Back up again right before editing
+      cp "$GATEWAY_CFG" "${GATEWAY_CFG}.antenna-pre-register-$(date +%Y%m%d-%H%M%S)"
+
+      # 1) Enable/merge hooks config
+      local tmp_gw
+      tmp_gw=$(mktemp)
+      jq --arg aid "antenna" --arg prefix "hook:antenna" '
+        .hooks.enabled = true |
+        .hooks.allowRequestSessionKey = true |
+        .hooks.allowedAgentIds = ((.hooks.allowedAgentIds // []) | if (index($aid) | not) then . + [$aid] else . end) |
+        .hooks.allowedSessionKeyPrefixes = ((.hooks.allowedSessionKeyPrefixes // []) | if (index($prefix) | not) then . + [$prefix] else . end)
+      ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+      ok "Hooks enabled and allowlists updated"
+
+      # 2) Register antenna agent if not already present
+      local has_antenna
+      has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
+      if [[ "$has_antenna" -eq 0 ]]; then
+        tmp_gw=$(mktemp)
+        jq --arg model "$RELAY_MODEL" --arg agentdir "$SKILL_DIR/agent" '
+          .agents.list = ((.agents.list // []) + [{
+            id: "antenna",
+            name: "Antenna Relay",
+            model: $model,
+            agentDir: $agentdir
+          }])
+        ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+        ok "Registered Antenna agent in gateway config"
+      else
+        info "Antenna agent already registered in gateway config"
+      fi
+
+      # 3) Validate
+      if jq empty "$GATEWAY_CFG" 2>/dev/null; then
+        ok "Gateway config is valid JSON after changes"
+        AUTO_REGISTERED=true
+      else
+        err "Gateway config is not valid JSON after changes!"
+        warn "Restoring from backup..."
+        cp "${GATEWAY_CFG}.antenna-backup" "$GATEWAY_CFG" 2>/dev/null || true
+      fi
+    fi
+  fi
+fi
+
+if [[ "$AUTO_REGISTERED" == "false" ]]; then
+  echo "  Add the following to your OpenClaw gateway config (openclaw.yaml or equivalent):"
+  echo ""
+  echo -e "  ${BOLD}1. Enable hooks:${NC}"
+  echo "     hooks:"
+  echo "       enabled: true"
+  echo "       allowRequestSessionKey: true"
+  echo "       allowedAgentIds: [\"antenna\"]"
+  echo "       allowedSessionKeyPrefixes: [\"hook:antenna\"]"
+  echo ""
+  echo -e "  ${BOLD}2. Register the Antenna agent:${NC}"
+  echo "     agents:"
+  echo "       - id: antenna"
+  echo "         name: Antenna Relay"
+  echo "         model: $RELAY_MODEL"
+  echo "         agentDir: $SKILL_DIR/agent"
+  echo ""
+  echo -e "  ${BOLD}3. Restart your gateway:${NC}"
+  echo "     openclaw gateway restart"
+fi
 echo ""
 
 header "═══ Next Steps ═══"
 echo ""
-echo "  1. Register the agent in your gateway config (see above)"
-echo -e "  2. ${BOLD}Verify your edits before restarting:${NC}"
-echo "     antenna doctor"
-echo "  3. Restart the gateway: openclaw gateway restart"
+if [[ "$AUTO_REGISTERED" == "true" ]]; then
+  echo "  1. Restart the gateway to activate changes:"
+  echo "     openclaw gateway restart"
+  echo -e "  2. ${BOLD}Verify the registration:${NC}"
+  echo "     antenna doctor"
+else
+  echo "  1. Register the agent in your gateway config (see above)"
+  echo -e "  2. ${BOLD}Verify your edits before restarting:${NC}"
+  echo "     antenna doctor"
+  echo "  3. Restart the gateway: openclaw gateway restart"
+fi
 echo "  4. Add a remote peer:"
 echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
 echo "  5. Exchange identity secrets with that peer:"

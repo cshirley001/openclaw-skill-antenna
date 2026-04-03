@@ -229,6 +229,30 @@ cmd_peers() {
       if [[ -n "$exchange_public_key" ]]; then
         echo "Exchange public key: set"
       fi
+
+      # Prompt to add peer to allowlists (default: yes)
+      local add_to_lists=true
+      if [[ -t 0 && -t 1 ]]; then
+        echo ""
+        local yn
+        read -rp "Add $id to inbound/outbound allowlists? [y]: " yn
+        yn="${yn:-y}"
+        if [[ "${yn,,}" != "y" && "${yn,,}" != "yes" ]]; then
+          add_to_lists=false
+        fi
+      fi
+
+      if [[ "$add_to_lists" == "true" ]]; then
+        local cfg_tmp
+        cfg_tmp=$(mktemp)
+        jq --arg p "$id" '
+          .allowed_inbound_peers = ((.allowed_inbound_peers // []) | if (index($p) | not) then . + [$p] else . end) |
+          .allowed_outbound_peers = ((.allowed_outbound_peers // []) | if (index($p) | not) then . + [$p] else . end)
+        ' "$CONFIG_FILE" > "$cfg_tmp" && mv "$cfg_tmp" "$CONFIG_FILE"
+        echo "✓ Added $id to allowed_inbound_peers and allowed_outbound_peers"
+      else
+        echo "⚠ Peer added but NOT in allowlists. Run: antenna config set allowed_outbound_peers '[\"...\"]' to allow sending."
+      fi
       ;;
 
     exchange)
