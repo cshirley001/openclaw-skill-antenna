@@ -379,21 +379,56 @@ default_himalaya_account() {
 
 send_bundle_email() {
   local email_to="$1" bundle_file="$2" peer_id="$3" account="${4:-}"
-  have_cmd himalaya || die "himalaya not found — cannot send email directly. Use the bundle file or --print instead."
   [[ -f "$bundle_file" ]] || die "Bundle file not found: $bundle_file"
-  if [[ -z "$account" ]]; then
-    account="$(default_himalaya_account)"
-  fi
-  [[ -n "$account" ]] || die "No default Himalaya account found. Pass --account <name>."
 
-  local sid subject raw_file bundle_basename bundle_b64
+  local sid subject bundle_basename
   sid="$(self_id)"
   subject="Antenna bootstrap bundle from ${sid} for ${peer_id}"
   bundle_basename="$(basename "$bundle_file")"
-  bundle_b64=$(base64 "$bundle_file")
-  raw_file=$(mktemp)
-  cat > "$raw_file" <<EOF
-From: ${sid} <$(himalaya account list -a "$account" -o json 2>/dev/null | jq -r '.[0].email // empty' || true)>
+
+  local body_text
+  body_text="Encrypted Antenna Layer A bootstrap bundle from ${sid}.
+
+To import it:
+1. Save the attached .age.txt file
+2. Run: antenna peers exchange import <saved-file>
+3. If you do not have age installed yet: apt install age / brew install age
+
+Important: Import the attached FILE directly — do not copy-paste the
+bundle text, as email formatting may corrupt the base64 encoding."
+
+  # Method 1: gog (Gmail API — handles attachments natively)
+  if have_cmd gog; then
+    local gog_account="${account:-}"
+    # If account looks like a himalaya account name, try to find a gog account instead
+    if [[ -n "$gog_account" ]] && ! [[ "$gog_account" == *@* ]]; then
+      gog_account=""  # let gog use its default
+    fi
+    local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
+    [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
+    if gog "${gog_args[@]}" >/dev/null 2>&1; then
+      ok "Sent encrypted bundle email to $email_to via gog (Gmail API)"
+      return 0
+    fi
+    warn "gog send failed; trying himalaya fallback..."
+  fi
+
+  # Method 2: himalaya (IMAP/SMTP — raw MIME via stdin)
+  if have_cmd himalaya; then
+    if [[ -z "$account" ]]; then
+      account="$(default_himalaya_account)"
+    fi
+    [[ -n "$account" ]] || die "No email account found. Install gog or himalaya, or use the bundle file manually."
+
+    local raw_file bundle_b64
+    bundle_b64=$(base64 "$bundle_file")
+    local from_addr
+    from_addr=$(himalaya account list -a "$account" -o json 2>/dev/null | jq -r '.[0].email // empty' 2>/dev/null || true)
+    [[ -n "$from_addr" ]] || from_addr="antenna@localhost"
+
+    raw_file=$(mktemp)
+    cat > "$raw_file" <<EOF
+From: ${sid} <${from_addr}>
 To: ${email_to}
 Subject: ${subject}
 MIME-Version: 1.0
@@ -402,17 +437,7 @@ Content-Type: multipart/mixed; boundary="ANTENNABUNDLE"
 --ANTENNABUNDLE
 Content-Type: text/plain; charset=UTF-8
 
-Hello,
-
-Here is an encrypted Antenna Layer A bootstrap bundle from ${sid}.
-
-To import it:
-1. Save the attached .age.txt file
-2. Run: antenna peers exchange import <saved-file>
-3. If you do not have age installed yet: apt install age / brew install age
-
-Important: Import the attached FILE directly — do not copy-paste the
-bundle text, as email formatting may corrupt the base64 encoding.
+${body_text}
 
 --ANTENNABUNDLE
 Content-Type: application/octet-stream; name="${bundle_basename}"
@@ -423,9 +448,13 @@ ${bundle_b64}
 
 --ANTENNABUNDLE--
 EOF
-  himalaya message send -a "$account" "$(cat "$raw_file")" >/dev/null
-  rm -f "$raw_file"
-  ok "Sent encrypted bundle email to $email_to via Himalaya account '$account'"
+    himalaya message send -a "$account" < "$raw_file" >/dev/null
+    rm -f "$raw_file"
+    ok "Sent encrypted bundle email to $email_to via himalaya"
+    return 0
+  fi
+
+  die "No email tool available (tried gog, himalaya). Use the bundle file or --print instead."
 }
 
 ensure_peer_entry_updated() {
