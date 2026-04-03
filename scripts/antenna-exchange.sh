@@ -651,6 +651,29 @@ run_bundle_command() {
     log_entry "OUTBOUND-BOOTSTRAP | mode:${mode} | to:${peer_id} | status:emailed | email:${email}"
   elif [[ -n "$email" ]]; then
     info "Email not sent automatically. Re-run with --send-email, or send the bundle file manually to: $email"
+  elif [[ "$send_email" != "true" && "$assume_yes" != "true" ]] && is_tty && (have_cmd gog || have_cmd himalaya); then
+    # Interactive: offer to email the bundle
+    echo
+    if prompt_yn "Email this bundle to the peer?" "y"; then
+      local interactive_email interactive_account
+      prompt interactive_email "Recipient email address"
+      if [[ -n "$interactive_email" ]]; then
+        interactive_account=""
+        if have_cmd himalaya; then
+          local default_acct
+          default_acct="$(default_himalaya_account)"
+          if [[ -n "$default_acct" ]]; then
+            if ! prompt_yn "Send from himalaya account '$default_acct'?" "y"; then
+              prompt interactive_account "Himalaya account name"
+            else
+              interactive_account="$default_acct"
+            fi
+          fi
+        fi
+        send_bundle_email "$interactive_email" "$output_file" "$peer_id" "$interactive_account"
+        log_entry "OUTBOUND-BOOTSTRAP | mode:${mode} | to:${peer_id} | status:emailed | email:${interactive_email}"
+      fi
+    fi
   fi
 
   if [[ "$mode" == "reply" ]]; then
