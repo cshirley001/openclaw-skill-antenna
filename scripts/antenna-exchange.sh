@@ -3,7 +3,7 @@
 #
 # Preferred encrypted flow:
 #   antenna peers exchange keygen [--force]
-#   antenna peers exchange pubkey [--bare]
+#   antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email] [--email <addr> --send-email]
 #   antenna peers exchange initiate <peer-id> [options]
 #   antenna peers exchange import [file|-] [--yes]
 #   antenna peers exchange reply <peer-id> [options]
@@ -46,7 +46,7 @@ antenna peers exchange — Antenna Layer A bootstrap exchange
 
 Encrypted flow (preferred):
   antenna peers exchange keygen [--force]
-  antenna peers exchange pubkey [--bare]
+  antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email]
   antenna peers exchange initiate <peer-id> [options]
   antenna peers exchange import [file|-] [--yes]
   antenna peers exchange reply <peer-id> [options]
@@ -830,11 +830,92 @@ cmd_keygen() {
   ensure_exchange_keypair "$force"
 }
 
+send_pubkey_email() {
+  local email_to="$1" account="${2:-}"
+  local sid pubkey subject
+
+  sid="$(self_id)"
+  pubkey="$(current_exchange_pubkey)"
+  subject="Antenna exchange public key from ${sid}"
+
+  local body_text="Antenna exchange public key from ${sid}:
+
+${pubkey}
+
+To use this key when creating a bootstrap bundle for ${sid}:
+  antenna peers exchange initiate ${sid} --pubkey ${pubkey}
+
+Or save the attached .agepub file and use:
+  antenna peers exchange initiate ${sid} --pubkey-file <saved-file>"
+
+  local pubkey_file
+  pubkey_file=$(mktemp --suffix="-${sid}.agepub")
+  printf '%s\n' "$pubkey" > "$pubkey_file"
+
+  # Method 1: gog
+  if have_cmd gog; then
+    local gog_account="${account:-}"
+    [[ -n "$gog_account" ]] && ! [[ "$gog_account" == *@* ]] && gog_account=""
+    local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
+    [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
+    if gog "${gog_args[@]}" >/dev/null 2>&1; then
+      rm -f "$pubkey_file"
+      ok "Sent exchange public key to $email_to via gog (Gmail API)"
+      return 0
+    fi
+    warn "gog send failed; trying himalaya fallback..."
+  fi
+
+  # Method 2: himalaya
+  if have_cmd himalaya; then
+    if [[ -z "$account" ]]; then
+      account="$(default_himalaya_account)"
+    fi
+    [[ -n "$account" ]] || { rm -f "$pubkey_file"; die "No email account found."; }
+
+    local from_addr raw_file
+    from_addr=$(himalaya account list -a "$account" -o json 2>/dev/null | jq -r '.[0].email // empty' 2>/dev/null || true)
+    [[ -n "$from_addr" ]] || from_addr="antenna@localhost"
+
+    raw_file=$(mktemp)
+    cat > "$raw_file" <<EOF
+From: ${sid} <${from_addr}>
+To: ${email_to}
+Subject: ${subject}
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="ANTENNAPUBKEY"
+
+--ANTENNAPUBKEY
+Content-Type: text/plain; charset=UTF-8
+
+${body_text}
+
+--ANTENNAPUBKEY
+Content-Type: text/plain; name="${sid}-exchange.agepub"
+Content-Disposition: attachment; filename="${sid}-exchange.agepub"
+
+${pubkey}
+
+--ANTENNAPUBKEY--
+EOF
+    himalaya message send -a "$account" < "$raw_file" >/dev/null
+    rm -f "$raw_file" "$pubkey_file"
+    ok "Sent exchange public key to $email_to via himalaya"
+    return 0
+  fi
+
+  rm -f "$pubkey_file"
+  die "No email tool available (tried gog, himalaya). Share the public key manually."
+}
+
 cmd_pubkey() {
-  local bare=false
+  local bare=false email="" account="" send_email=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --bare) bare=true; shift ;;
+      --email) email="$2"; shift 2 ;;
+      --account) account="$2"; shift 2 ;;
+      --send-email) send_email=true; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option for pubkey: $1" ;;
     esac
@@ -849,6 +930,34 @@ cmd_pubkey() {
     current_exchange_pubkey
     echo
     info "Share this public key with the peer that will encrypt your bootstrap bundle."
+
+    # Send by email if requested
+    if [[ "$send_email" == "true" ]]; then
+      [[ -n "$email" ]] || die "--send-email requires --email <addr>"
+      send_pubkey_email "$email" "$account"
+    elif [[ "$send_email" != "true" ]] && is_tty && (have_cmd gog || have_cmd himalaya); then
+      # Interactive: offer to email
+      echo
+      if prompt_yn "Email this public key to a peer?" "y"; then
+        local interactive_email interactive_account
+        prompt interactive_email "Recipient email address"
+        if [[ -n "$interactive_email" ]]; then
+          interactive_account=""
+          if have_cmd himalaya; then
+            local default_acct
+            default_acct="$(default_himalaya_account)"
+            if [[ -n "$default_acct" ]]; then
+              if ! prompt_yn "Send from himalaya account '$default_acct'?" "y"; then
+                prompt interactive_account "Himalaya account name"
+              else
+                interactive_account="$default_acct"
+              fi
+            fi
+          fi
+          send_pubkey_email "$interactive_email" "$interactive_account"
+        fi
+      fi
+    fi
   fi
 }
 

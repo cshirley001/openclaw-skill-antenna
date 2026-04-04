@@ -43,7 +43,7 @@ Usage:
   antenna peers test <id>                    Test connectivity to a peer
   antenna peers generate-secret <id>         Generate a per-peer auth secret
   antenna peers exchange keygen [--force]    Generate local age exchange keypair
-  antenna peers exchange pubkey [--bare]     Show local age exchange public key
+  antenna peers exchange pubkey [--bare] [--email ...] Show/email local age exchange public key
   antenna peers exchange initiate <id> ...   Create encrypted bootstrap bundle
   antenna peers exchange import [file|-]     Import encrypted bootstrap bundle
   antenna peers exchange reply <id> ...      Create reciprocal encrypted bundle
