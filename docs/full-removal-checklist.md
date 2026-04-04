@@ -77,15 +77,29 @@ json.dump(c, open(gw, 'w'), indent=2)
 "
 ```
 
-## 6. Uninstall age
+## 6. Uninstall age (check ALL install methods)
 
 ```bash
-# Debian/Ubuntu
+# Debian/Ubuntu (apt)
 sudo apt-get remove -y age && sudo apt-get autoremove -y
 
-# macOS / Homebrew
-brew uninstall age
+# Homebrew / Linuxbrew (may also be present!)
+brew uninstall age 2>/dev/null || true
+
+# Check for Linuxbrew directly if brew isn't on PATH
+ls /home/linuxbrew/.linuxbrew/bin/age* 2>/dev/null && \
+  /home/linuxbrew/.linuxbrew/bin/brew uninstall age 2>/dev/null
+
+# Manual / go install
+rm -f ~/go/bin/age ~/go/bin/age-keygen 2>/dev/null
+
+# Verify fully removed
+which age 2>/dev/null && echo "STILL FOUND" || echo "clean"
+ls /home/linuxbrew/.linuxbrew/bin/age 2>/dev/null && echo "STILL IN LINUXBREW" || echo "clean"
 ```
+
+**Note:** Antenna's interactive setup may install age via Homebrew (`try_install_age`),
+so even if the original was from apt, a Linuxbrew copy may exist after running setup.
 
 ## 7. Restart gateway
 

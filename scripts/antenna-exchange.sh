@@ -313,6 +313,8 @@ ensure_exchange_keypair() {
       chmod 644 "$EXCHANGE_PUB_FILE"
     fi
     sync_self_exchange_pubkey || true
+    info "Exchange keypair already exists. Use --force to regenerate."
+    info "Public key: $(current_exchange_pubkey)"
     return 0
   fi
 
