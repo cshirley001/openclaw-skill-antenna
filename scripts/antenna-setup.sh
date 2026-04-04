@@ -556,7 +556,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         file_token="$(tr -d '[:space:]' < "$TOKEN_FILE")"
       fi
 
-      jq --arg aid "antenna" --arg prefix "hook:antenna" --arg agent_prefix "agent:${AGENT_ID}:" --arg file_token "$file_token" '
+      jq --arg aid "antenna" --arg prefix "hook:" --arg agent_prefix "agent:${AGENT_ID}:" --arg file_token "$file_token" '
         .hooks.enabled = true |
         .hooks.allowRequestSessionKey = true |
         .hooks.allowedAgentIds = ((.hooks.allowedAgentIds // []) | if (index($aid) | not) then . + [$aid] else . end) |
@@ -608,7 +608,7 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "       allowRequestSessionKey: true"
   echo "       token: <contents of your hooks token file>"
   echo "       allowedAgentIds: [\"antenna\"]"
-  echo "       allowedSessionKeyPrefixes: [\"hook:antenna\", \"agent:${AGENT_ID}:\"]"
+  echo "       allowedSessionKeyPrefixes: [\"hook:\", \"agent:${AGENT_ID}:\"]"
   echo ""
   echo -e "  ${BOLD}2. Register the Antenna agent:${NC}"
   echo "     agents:"
