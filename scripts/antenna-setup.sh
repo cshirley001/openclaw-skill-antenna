@@ -83,7 +83,7 @@ Non-interactive:
     --display-name "My Host (Server)" \
     --url "https://myhost.tailXXXXX.ts.net" \
     --agent-id betty \
-    --model "openai/gpt-5.4-nano-2026-03-17" \
+    --model "openai/gpt-4o-mini" \
     --token-file /path/to/hooks_token \
     [--force]
 
@@ -148,7 +148,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "    1. Your OpenClaw host ID (usually your hostname)"
   echo "    2. Your reachable HTTPS hook URL"
   echo "    3. Your primary agent ID (e.g., 'betty')"
-  echo "    4. A relay model (e.g., 'openai/gpt-5.4-nano-2026-03-17')"
+  echo "    4. A relay model (e.g., 'openai/gpt-4o-mini')"
   echo "    5. Path to your OpenClaw hooks bearer token file"
   echo ""
 fi
@@ -183,7 +183,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   header "Step 4/6 — Relay Model"
   info "The model used by the Antenna relay agent for tool dispatch."
   info "Use a full provider/model ID (not an alias) for portability."
-  info "Examples: openai/gpt-5.4-nano-2026-03-17, openai/gpt-5.4, anthropic/claude-sonnet-4-20250514"
+  info "Examples: openai/gpt-4o-mini, openai/gpt-5.4, anthropic/claude-sonnet-4-20250514"
 
   # Try to load model aliases from gateway config
   _alias_names=()
@@ -211,8 +211,8 @@ if [[ "$INTERACTIVE" == "true" ]]; then
       echo "    $((_i+1)). ${_alias_names[$_i]} → ${_alias_ids[$_i]}"
     done
     echo ""
-    read -rp "$(echo -e "${CYAN}?${NC}  Enter number, full provider/model ID, or press Enter for default [openai/gpt-5.4-nano-2026-03-17]: ")" _relay_input
-    _relay_input="${_relay_input:-openai/gpt-5.4-nano-2026-03-17}"
+    read -rp "$(echo -e "${CYAN}?${NC}  Enter number, full provider/model ID, or press Enter for default [openai/gpt-4o-mini]: ")" _relay_input
+    _relay_input="${_relay_input:-openai/gpt-4o-mini}"
     if [[ "$_relay_input" =~ ^[0-9]+$ ]]; then
       _idx=$((_relay_input - 1))
       if [[ $_idx -ge 0 && $_idx -lt ${#_alias_ids[@]} ]]; then
@@ -238,7 +238,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
       fi
     fi
   else
-    prompt RELAY_MODEL "Relay model" "openai/gpt-5.4-nano-2026-03-17"
+    prompt RELAY_MODEL "Relay model" "openai/gpt-4o-mini"
   fi
 
   # Token file — try autodiscovery first
@@ -307,7 +307,7 @@ else
   HOST_URL="${NI_URL:?--url is required}"
   HOST_URL="${HOST_URL%/}"
   AGENT_ID="${NI_AGENT:?--agent-id is required}"
-  RELAY_MODEL="${NI_MODEL:-openai/gpt-5.4-nano-2026-03-17}"
+  RELAY_MODEL="${NI_MODEL:-openai/gpt-4o-mini}"
 
   # Resolve model alias if --model matched an alias name
   if [[ -n "$NI_MODEL" ]]; then
@@ -569,7 +569,27 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
       ok "Hooks enabled, token registered, and allowlists updated"
 
-      # 2) Register antenna agent if not already present
+      # 2) Ensure a default agent exists before adding antenna
+      #    If agents.list is empty/absent, the default main agent is implicit.
+      #    Adding antenna alone would make it the only visible agent in the UI.
+      has_any_agent=""
+      has_any_agent=$(jq '[.agents.list // [] | .[]] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
+      if [[ "$has_any_agent" -eq 0 ]]; then
+        _def_workspace=$(jq -r '.agents.defaults.workspace // "~/clawd"' "$GATEWAY_CFG" 2>/dev/null || echo "~/clawd")
+        _def_model=$(jq -r '.agents.defaults.model.primary // "openai/gpt-4o-mini"' "$GATEWAY_CFG" 2>/dev/null || echo "openai/gpt-4o-mini")
+        tmp_gw=$(mktemp)
+        jq --arg ws "$_def_workspace" --arg model "$_def_model" '
+          .agents.list = [{
+            id: "betty",
+            name: "Main Agent",
+            model: $model,
+            agentDir: $ws
+          }]
+        ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+        info "Created default main agent entry (agents.list was empty)"
+      fi
+
+      # 3) Register antenna agent if not already present
       has_antenna=""
       has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
       if [[ "$has_antenna" -eq 0 ]]; then
@@ -587,7 +607,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         info "Antenna agent already registered in gateway config"
       fi
 
-      # 3) Validate
+      # 4) Validate
       if jq empty "$GATEWAY_CFG" 2>/dev/null; then
         ok "Gateway config is valid JSON after changes"
         AUTO_REGISTERED=true
