@@ -623,7 +623,30 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         info "Antenna agent already registered in gateway config"
       fi
 
-      # 4) Validate
+      # 4) Register exec allowlist for the antenna agent
+      #    The relay agent needs to run shell commands (bash, echo, jq, cat)
+      #    without requiring manual approval on each inbound message.
+      if command -v openclaw &>/dev/null; then
+        _allowlist_cmds=("/usr/bin/bash" "/usr/bin/echo" "/usr/bin/jq" "/usr/bin/cat")
+        for _cmd in "${_allowlist_cmds[@]}"; do
+          # Resolve actual path in case of different distro layouts
+          _real_cmd="$_cmd"
+          if [[ ! -f "$_cmd" ]] && command -v "$(basename "$_cmd")" &>/dev/null; then
+            _real_cmd="$(command -v "$(basename "$_cmd")")"
+          fi
+          openclaw approvals allowlist add --agent antenna "$_real_cmd" >/dev/null 2>&1 || true
+        done
+        ok "Exec allowlist configured for antenna agent (bash, echo, jq, cat)"
+      else
+        warn "Could not configure exec allowlist (openclaw CLI not found)"
+        info "You may need to approve exec commands manually or run:"
+        info "  openclaw approvals allowlist add --agent antenna /usr/bin/bash"
+        info "  openclaw approvals allowlist add --agent antenna /usr/bin/echo"
+        info "  openclaw approvals allowlist add --agent antenna /usr/bin/jq"
+        info "  openclaw approvals allowlist add --agent antenna /usr/bin/cat"
+      fi
+
+      # 5) Validate
       if jq empty "$GATEWAY_CFG" 2>/dev/null; then
         ok "Gateway config is valid JSON after changes"
         AUTO_REGISTERED=true
@@ -654,7 +677,13 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "         agentDir: $SKILL_DIR/agent"
   echo "         workspace: $SKILL_DIR/agent"
   echo ""
-  echo -e "  ${BOLD}3. Restart your gateway:${NC}"
+  echo -e "  ${BOLD}3. Allow exec for the relay agent (no manual approval needed):${NC}"
+  echo "     openclaw approvals allowlist add --agent antenna /usr/bin/bash"
+  echo "     openclaw approvals allowlist add --agent antenna /usr/bin/echo"
+  echo "     openclaw approvals allowlist add --agent antenna /usr/bin/jq"
+  echo "     openclaw approvals allowlist add --agent antenna /usr/bin/cat"
+  echo ""
+  echo -e "  ${BOLD}4. Restart your gateway:${NC}"
   echo "     openclaw gateway restart"
 fi
 echo ""
