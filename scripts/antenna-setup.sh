@@ -183,13 +183,15 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   header "Step 4/6 — Relay Model"
   info "The model used by the Antenna relay agent for tool dispatch."
   info "Use a full provider/model ID (not an alias) for portability."
-  info "Examples: openai/gpt-4o-mini, openai/gpt-5.4, anthropic/claude-sonnet-4-20250514"
+  info "A lightweight/mechanical model works best — the relay agent should NOT interpret messages."
 
-  # Try to load model aliases from gateway config
+  # Try to load default model and aliases from gateway config
   _alias_names=()
   _alias_ids=()
+  _default_model=""
   for _gw_cand in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
     if [[ -f "$_gw_cand" ]]; then
+      _default_model=$(jq -r '.agents.defaults.model.primary // empty' "$_gw_cand" 2>/dev/null || true)
       while IFS=$'\t' read -r _mid _aname; do
         [[ -z "$_mid" || -z "$_aname" ]] && continue
         _alias_ids+=("$_mid")
@@ -203,17 +205,30 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     fi
   done
 
+  # Use the host's default model as the suggested default (most likely to be working)
+  _suggested_default="${_default_model:-openai/gpt-4o-mini}"
+
   RELAY_MODEL=""
+  echo ""
+  if [[ -n "$_default_model" ]]; then
+    info "Your default model: ${BOLD}$_default_model${NC}"
+  fi
   if [[ ${#_alias_names[@]} -gt 0 ]]; then
-    echo ""
     info "Available model aliases from your gateway config:"
+    _offset=1
+    if [[ -n "$_default_model" ]]; then
+      echo "    ${BOLD}D. (default) → $_default_model${NC}"
+    fi
     for _i in "${!_alias_names[@]}"; do
       echo "    $((_i+1)). ${_alias_names[$_i]} → ${_alias_ids[$_i]}"
     done
     echo ""
-    read -rp "$(echo -e "${CYAN}?${NC}  Enter number, full provider/model ID, or press Enter for default [openai/gpt-4o-mini]: ")" _relay_input
-    _relay_input="${_relay_input:-openai/gpt-4o-mini}"
-    if [[ "$_relay_input" =~ ^[0-9]+$ ]]; then
+    read -rp "$(echo -e "${CYAN}?${NC}  Enter D for default, number, full provider/model ID, or press Enter [$_suggested_default]: ")" _relay_input
+    _relay_input="${_relay_input:-D}"
+    if [[ "${_relay_input,,}" == "d" ]]; then
+      RELAY_MODEL="$_suggested_default"
+      info "Selected default model: $RELAY_MODEL"
+    elif [[ "$_relay_input" =~ ^[0-9]+$ ]]; then
       _idx=$((_relay_input - 1))
       if [[ $_idx -ge 0 && $_idx -lt ${#_alias_ids[@]} ]]; then
         RELAY_MODEL="${_alias_ids[$_idx]}"
@@ -238,7 +253,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
       fi
     fi
   else
-    prompt RELAY_MODEL "Relay model" "openai/gpt-4o-mini"
+    prompt RELAY_MODEL "Relay model" "$_suggested_default"
   fi
 
   # Token file — try autodiscovery first
@@ -599,10 +614,11 @@ if [[ -n "$GATEWAY_CFG" ]]; then
             id: "antenna",
             name: "Antenna Relay",
             model: $model,
-            agentDir: $agentdir
+            agentDir: $agentdir,
+            workspace: $agentdir
           }])
         ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-        ok "Registered Antenna agent in gateway config"
+        ok "Registered Antenna agent in gateway config (workspace = agentDir)"
       else
         info "Antenna agent already registered in gateway config"
       fi
@@ -636,6 +652,7 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "         name: Antenna Relay"
   echo "         model: $RELAY_MODEL"
   echo "         agentDir: $SKILL_DIR/agent"
+  echo "         workspace: $SKILL_DIR/agent"
   echo ""
   echo -e "  ${BOLD}3. Restart your gateway:${NC}"
   echo "     openclaw gateway restart"
