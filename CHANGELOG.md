@@ -4,6 +4,43 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-04-06
+
+### Summary
+Inbox: optional approval queue for inbound messages. Directly addresses the two HIGH severity security findings (SEC-1, SEC-2) from the v1.0.20 security assessment by making sandbox-off + silent exec optional rather than required.
+
+### Added
+- **Inbox approval queue** (`scripts/antenna-inbox.sh`): When `inbox_enabled` is `true`, inbound messages from non-auto-approved peers are queued for operator review instead of being relayed immediately.
+- **Auto-approve peer list** (`inbox_auto_approve_peers` in config): Trusted peers bypass the queue and relay instantly. Provides progressive trust — new peers start in the queue, graduate to auto-approve once trusted.
+- **CLI commands:**
+  - `antenna inbox` / `antenna inbox list` — table view of pending messages (Ref#, Time, From, To, Preview)
+  - `antenna inbox count` — pending count (for heartbeat/cron integration)
+  - `antenna inbox show <ref>` — full message body
+  - `antenna inbox approve all|<refs>` — selective approval with comma-separated refs and ranges (e.g., `1,3,5-7`)
+  - `antenna inbox deny all|<refs>` — selective denial
+  - `antenna inbox drain` — outputs JSON delivery instructions for approved items; calling agent delivers via `sessions_send`
+  - `antenna inbox clear` — purge processed items
+- **Internal `queue-add` command** for `antenna-relay.sh` to add validated messages to the queue.
+- **Relay agent `queue` response**: Agent now handles `{"action":"queue"}` script output and replies `Queued: ref #N from <peer>`.
+
+### Changed
+- `antenna-relay.sh` — new inbox branch after all validation passes (peer auth, rate limiting, message length). When inbox is enabled, non-auto-approved peers' messages are fully validated then queued. Auto-approved peers and inbox-disabled mode fall through to the existing immediate relay path.
+- `antenna-config.example.json` — three new fields: `inbox_enabled`, `inbox_auto_approve_peers`, `inbox_queue_path`.
+- `scripts/antenna-setup.sh` — generates inbox config defaults (disabled by default).
+- `bin/antenna` — `inbox` subcommand wired with help text.
+- `agent/AGENTS.md` — queue response handling added to relay agent instructions.
+
+### Design Decisions
+- **Drain outputs JSON, does not self-deliver.** `antenna inbox drain` outputs `{"action":"deliver","sessionKey":"...","message":"..."}` lines to stdout. The calling agent (primary assistant or cron) reads these and calls `sessions_send`. This avoids re-entering the relay agent via `/hooks/agent` which could re-queue the message.
+- **Message format is identical.** The relay script builds the complete formatted message (📡 header, security notice, body) *before* the queue decision. Approved messages arrive in the target session looking exactly the same as direct-relay messages.
+- **Backwards compatible.** `inbox_enabled: false` (the default) preserves all existing behavior. No changes to the immediate relay path.
+- **Inbox reduces relay agent permissions.** With inbox enabled, the relay agent only needs `exec` (to run the relay script that queues). It no longer needs `sessions_send` for queued peers, since delivery moves to the drain caller.
+
+### Security Impact
+- Operators who enable inbox mode can optionally run the relay agent with stricter security, since the relay agent no longer delivers directly for queued peers.
+- Auto-approve provides tiered trust without all-or-nothing security decisions.
+- Queue file has the same exposure profile as the existing antenna.log.
+
 ## [1.0.20] — 2026-04-06
 ### Added
 - **Heredoc-free relay wrapper (`antenna-relay-exec.sh`):** New wrapper script that accepts the raw message as `$1`, writes it to a temp file, and pipes to `antenna-relay.sh --stdin`. Avoids all dynamic shell constructs in the exec call.

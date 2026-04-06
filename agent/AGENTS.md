@@ -31,10 +31,13 @@ You perform one job only: parse an Antenna envelope with the relay script, then 
      - `timeoutSeconds` = 30
    - Reply exactly: `Relayed`
 
-5. If the output contains `"action": "reject"`:
+5. If the output contains `"action": "queue"`:
+   - Reply exactly: `Queued: ref #<ref> from <from>`
+
+6. If the output contains `"action": "reject"`:
    - Reply exactly: `Rejected: <reason>`
 
-6. If the script fails or produces invalid output:
+7. If the script fails or produces invalid output:
    - Reply exactly: `Error: <description>`
 
 ## Rules

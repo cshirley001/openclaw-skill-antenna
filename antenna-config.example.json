@@ -15,6 +15,9 @@
   },
   "mcs_enabled": false,
   "mcs_model": "sonnet",
+  "inbox_enabled": false,
+  "inbox_auto_approve_peers": [],
+  "inbox_queue_path": "antenna-inbox.json",
   "allowed_inbound_sessions": [
     "main",
     "antenna"

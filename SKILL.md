@@ -1,6 +1,6 @@
 ---
 name: antenna
-version: 1.0.20
+version: 1.1.0
 description: >
   Inter-host OpenClaw session messaging over reachable HTTPS using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
@@ -12,7 +12,7 @@ description: >
   "inter-host relay", "ping <peer>", "peer list".
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.0.20)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.0)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -206,6 +206,58 @@ antenna test-suite --models "<m1>,<m2>"
 antenna test-suite --report
 ```
 
+### Inbox (optional approval queue)
+
+When `inbox_enabled` is `true` in config, inbound messages from peers not in `inbox_auto_approve_peers` are queued for review instead of being relayed immediately. Auto-approved peers bypass the queue and relay instantly (current behavior).
+
+```bash
+antenna inbox                        # list pending messages (table view)
+antenna inbox count                  # pending count (for heartbeat/cron checks)
+antenna inbox show <ref>             # full message body for a ref
+antenna inbox approve all            # approve everything pending
+antenna inbox approve 1,3,5-7       # selective approval (commas and ranges)
+antenna inbox deny all               # reject everything pending
+antenna inbox deny 2,4               # selective denial
+antenna inbox drain                  # output delivery JSON for approved, remove denied
+antenna inbox clear                  # purge all processed items
+```
+
+**Delivery flow:** `antenna inbox drain` outputs one JSON line per approved message with `sessionKey` and `message` fields. The calling agent (your primary assistant) reads these and calls `sessions_send` for each. This avoids re-entering the relay agent via `/hooks/agent`.
+
+**Configuration:**
+```json
+{
+  "inbox_enabled": false,
+  "inbox_auto_approve_peers": ["trusted-peer-id"],
+  "inbox_queue_path": "antenna-inbox.json"
+}
+```
+
+Notes:
+- Disabled by default — existing behavior is unchanged
+- Auto-approve list lets trusted peers bypass the queue (progressive trust)
+- Queue file is local runtime state (gitignored)
+- Ref numbers auto-increment and support range selection
+- When inbox is enabled, the relay agent only needs `exec` (not `sessions_send`), reducing its required permissions
+
+**Heartbeat / cron integration:**
+
+Add to your `HEARTBEAT.md`:
+```markdown
+## Antenna inbox check
+- Run: `antenna inbox count`
+- If > 0: run `antenna inbox list` and mention it
+```
+
+Or set up a cron job for automated handling:
+```
+Check antenna inbox. If there are pending messages from peers
+in [trusted-peer-id], approve and drain them. For anything else,
+summarize the queue and ask me.
+```
+
+**Conversational usage:** Ask your assistant "any Antenna messages waiting?" — it can run `antenna inbox list`, you review, then say "approve 1 and 3, deny 2" and it handles the rest.
+
 ## Security Notes
 
 - Relay agent is script-first and non-interpreting
@@ -252,17 +304,19 @@ skills/antenna/
 │   ├── antenna-doctor.sh
 │   ├── antenna-exchange.sh
 │   ├── antenna-relay-exec.sh
+│   ├── antenna-inbox.sh
 │   ├── antenna-model-test.sh
 │   └── antenna-test-suite.sh
 ├── docs/
-│   └── ANTENNA-RELAY-FSD.md
+│   ├── ANTENNA-RELAY-FSD.md
+│   └── SECURITY-ASSESSMENT-v1.0.20.md
 └── agent/
     ├── AGENTS.md
     └── TOOLS.md
 ```
 
 Notes:
-- `antenna-config.json` and `antenna-peers.json` are local runtime files created by `antenna setup`
+- `antenna-config.json`, `antenna-peers.json`, and `antenna-inbox.json` are local runtime files (gitignored)
 - `antenna-config.example.json` and `antenna-peers.example.json` are tracked reference templates
 
 ## Gateway / Agent Registration

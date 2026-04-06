@@ -11,6 +11,8 @@
 #     --agent-id <agent-id>
 #     --model <provider/model>
 #     --token-file <path>
+#     [--inbox true|false]                     Enable/disable inbox queue
+#     [--inbox-auto-approve "peer1,peer2"]     Auto-approve peer list
 #     [--force]                                Overwrite existing config
 #
 set -euo pipefail
@@ -60,6 +62,7 @@ prompt_yn() {
 # ── Parse non-interactive flags ──────────────────────────────────────────────
 
 NI_HOST_ID="" NI_DISPLAY="" NI_URL="" NI_AGENT="" NI_MODEL="" NI_TOKEN="" NI_FORCE=false
+NI_INBOX="" NI_INBOX_AUTO=""
 INTERACTIVE=true
 
 while [[ $# -gt 0 ]]; do
@@ -70,6 +73,8 @@ while [[ $# -gt 0 ]]; do
     --agent-id)      NI_AGENT="$2"; shift 2 ;;
     --model)         NI_MODEL="$2"; shift 2 ;;
     --token-file)    NI_TOKEN="$2"; shift 2 ;;
+    --inbox)         NI_INBOX="$2"; shift 2 ;;
+    --inbox-auto-approve) NI_INBOX_AUTO="$2"; shift 2 ;;
     --force)         NI_FORCE=true; shift ;;
     -h|--help)
       cat <<'EOF'
@@ -149,7 +154,8 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "    2. Your reachable HTTPS hook URL"
   echo "    3. Your primary agent ID (e.g., 'betty')"
   echo "    4. A relay model (e.g., 'openai/gpt-4o-mini')"
-  echo "    5. Path to your OpenClaw hooks bearer token file"
+  echo "    5. Whether to enable inbox mode (optional)"
+  echo "    6. Path to your OpenClaw hooks bearer token file"
   echo ""
 fi
 
@@ -158,7 +164,7 @@ fi
 if [[ "$INTERACTIVE" == "true" ]]; then
   # Host ID
   local_hostname=$(hostname | tr '[:upper:]' '[:lower:]')
-  header "Step 1/6 — Host Identity"
+  header "Step 1/7 — Host Identity"
   prompt HOST_ID "Host ID (lowercase, no spaces — identifies you on the mesh)" "$local_hostname"
   HOST_ID=$(echo "$HOST_ID" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
 
@@ -166,7 +172,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   prompt DISPLAY_NAME "Display name (human-readable, shown in message headers)" "${HOST_ID^} ($(hostname))"
 
   # URL
-  header "Step 2/6 — Reachable Endpoint"
+  header "Step 2/7 — Reachable Endpoint"
   info "This is the URL other peers use to reach your /hooks/agent endpoint."
   info "Examples: https://myhost.tailXXXXX.ts.net  or  https://your-host.example.com"
   prompt HOST_URL "Your hook URL" ""
@@ -174,13 +180,13 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   HOST_URL="${HOST_URL%/}"
 
   # Agent ID
-  header "Step 3/6 — Agent Identity"
+  header "Step 3/7 — Agent Identity"
   info "This is your primary assistant agent's ID in your gateway config."
   info "Used to resolve 'main' → 'agent:<id>:main'."
   prompt AGENT_ID "Primary agent ID" ""
 
   # Relay model
-  header "Step 4/6 — Relay Model"
+  header "Step 4/7 — Relay Model"
   info "The model used by the Antenna relay agent for tool dispatch."
   info "Use a full provider/model ID (not an alias) for portability."
   info "A lightweight/mechanical model works best — the relay agent should NOT interpret messages."
@@ -257,7 +263,35 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   fi
 
   # Token file — try autodiscovery first
-  header "Step 5/6 — Hooks Bearer Token"
+  # Inbox mode
+  header "Step 5/7 — Inbound Message Handling"
+  echo ""
+  echo "  Antenna can handle inbound messages in two ways:"
+  echo ""
+  echo "    ${BOLD}Instant relay${NC} (default)"
+  echo "      Messages arrive in your session immediately."
+  echo "      Requires sandbox-off on the relay agent."
+  echo ""
+  echo "    ${BOLD}Inbox queue${NC} (more secure)"
+  echo "      Messages are held for your review before delivery."
+  echo "      You approve/deny via 'antenna inbox' commands."
+  echo "      Trusted peers can auto-approve (bypass the queue)."
+  echo ""
+
+  INBOX_ENABLED=false
+  INBOX_AUTO_APPROVE=""
+  if prompt_yn "Enable inbox queue for inbound messages?" "n"; then
+    INBOX_ENABLED=true
+    ok "Inbox mode enabled"
+    echo ""
+    info "You can designate trusted peers whose messages skip the queue."
+    info "Enter peer host IDs separated by commas, or leave empty for none."
+    prompt INBOX_AUTO_APPROVE "Auto-approve peers (comma-separated, or empty)" ""
+  else
+    info "Inbox disabled — messages will relay instantly."
+  fi
+
+  header "Step 6/7 — Hooks Bearer Token"
   info "Path to the file containing your OpenClaw hooks bearer token."
   info "This authenticates HTTP requests to /hooks/agent."
 
@@ -314,7 +348,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     fi
   fi
 
-  header "Step 6/6 — Confirmation"
+  header "Step 7/7 — Confirmation"
 else
   # Non-interactive
   HOST_ID="$NI_HOST_ID"
@@ -339,6 +373,15 @@ else
         break
       fi
     done
+  fi
+
+  # Inbox settings (non-interactive)
+  if [[ "${NI_INBOX,,}" == "true" ]]; then
+    INBOX_ENABLED=true
+    INBOX_AUTO_APPROVE="${NI_INBOX_AUTO:-}"
+  else
+    INBOX_ENABLED=false
+    INBOX_AUTO_APPROVE=""
   fi
 
   TOKEN_FILE="${NI_TOKEN:?--token-file is required}"
@@ -378,6 +421,16 @@ echo -e "  Hook URL:     ${BOLD}$HOST_URL${NC}"
 echo -e "  Agent ID:     ${BOLD}$AGENT_ID${NC}"
 echo -e "  Relay model:  ${BOLD}$RELAY_MODEL${NC}"
 echo -e "  Token file:   ${BOLD}$TOKEN_FILE${NC}"
+if [[ "$INBOX_ENABLED" == "true" ]]; then
+  echo -e "  Inbox:        ${BOLD}enabled${NC}"
+  if [[ -n "$INBOX_AUTO_APPROVE" ]]; then
+    echo -e "  Auto-approve: ${BOLD}$INBOX_AUTO_APPROVE${NC}"
+  else
+    echo -e "  Auto-approve: ${BOLD}(none)${NC}"
+  fi
+else
+  echo -e "  Inbox:        ${BOLD}disabled${NC} (instant relay)"
+fi
 echo -e "  Install path: ${BOLD}$SKILL_DIR${NC}"
 echo -e "  Examples:     ${BOLD}$SKILL_DIR/antenna-config.example.json${NC}"
 echo -e "                ${BOLD}$SKILL_DIR/antenna-peers.example.json${NC}"
@@ -392,11 +445,19 @@ fi
 
 # ── Create config ────────────────────────────────────────────────────────────
 
+# Build inbox auto-approve JSON array from comma-separated string
+INBOX_AUTO_JSON="[]"
+if [[ -n "$INBOX_AUTO_APPROVE" ]]; then
+  INBOX_AUTO_JSON=$(echo "$INBOX_AUTO_APPROVE" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -R . | jq -s .)
+fi
+
 jq -n \
   --arg model "$RELAY_MODEL" \
   --arg agent "$AGENT_ID" \
   --arg path "$SKILL_DIR" \
   --arg host "$HOST_ID" \
+  --argjson inbox_enabled "$INBOX_ENABLED" \
+  --argjson inbox_auto "$INBOX_AUTO_JSON" \
   '{
     max_message_length: 10000,
     default_target_session: "main",
@@ -414,6 +475,9 @@ jq -n \
     },
     mcs_enabled: false,
     mcs_model: "sonnet",
+    inbox_enabled: $inbox_enabled,
+    inbox_auto_approve_peers: $inbox_auto,
+    inbox_queue_path: "antenna-inbox.json",
     allowed_inbound_sessions: ["main", "antenna"],
     allowed_inbound_peers: [$host],
     allowed_outbound_peers: [$host]
@@ -788,5 +852,31 @@ echo "    - tracked reference examples live at:"
 echo "      antenna-config.example.json"
 echo "      antenna-peers.example.json"
 echo ""
+if [[ "$INBOX_ENABLED" == "true" ]]; then
+  echo -e "  ${BOLD}═══ Inbox Mode ═══${NC}"
+  echo ""
+  echo "  Inbox is enabled. Non-auto-approved peers' messages will be queued."
+  echo "  Check the queue:    antenna inbox"
+  echo "  Approve messages:   antenna inbox approve all"
+  echo "  Deny messages:      antenna inbox deny 1,3"
+  echo "  Deliver approved:   antenna inbox drain"
+  echo ""
+  echo "  Tip: Add this to your HEARTBEAT.md for automatic checking:"
+  echo "    ## Antenna inbox check"
+  echo "    - Run: antenna inbox count"
+  echo "    - If > 0: run antenna inbox list and mention it"
+  echo ""
+  if [[ -n "$INBOX_AUTO_APPROVE" ]]; then
+    echo "  Auto-approved peers: $INBOX_AUTO_APPROVE"
+  else
+    echo "  No auto-approved peers. All inbound messages will be queued."
+    echo "  Add trusted peers later: antenna config set inbox_auto_approve_peers \"peer1,peer2\""
+  fi
+  echo ""
+else
+  echo -e "  ${YELLOW}ℹ${NC}  Inbox is disabled — messages relay instantly (requires sandbox-off)."
+  echo "    To enable later: antenna config set inbox_enabled true"
+  echo ""
+fi
 ok "Setup complete! Your host ID is: ${BOLD}$HOST_ID${NC}"
 echo ""

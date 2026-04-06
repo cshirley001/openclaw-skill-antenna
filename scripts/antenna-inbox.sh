@@ -1,0 +1,406 @@
+#!/usr/bin/env bash
+# antenna-inbox.sh — Queue management for Antenna inbox feature.
+# Optional approval queue for inbound messages.
+#
+# Usage:
+#   antenna-inbox.sh list
+#   antenna-inbox.sh count
+#   antenna-inbox.sh show <ref>
+#   antenna-inbox.sh approve all | <ref-list>
+#   antenna-inbox.sh deny all | <ref-list>
+#   antenna-inbox.sh drain [--execute]
+#   antenna-inbox.sh clear
+#   antenna-inbox.sh queue-add <json-item>
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+CONFIG_FILE="$SKILL_DIR/antenna-config.json"
+QUEUE_PATH=$(jq -r '.inbox_queue_path // "antenna-inbox.json"' "$CONFIG_FILE" 2>/dev/null || echo "antenna-inbox.json")
+
+# Resolve relative paths against skill dir
+if [[ "$QUEUE_PATH" != /* ]]; then
+  QUEUE_PATH="$SKILL_DIR/$QUEUE_PATH"
+fi
+
+# ── Colors ───────────────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info()  { echo -e "${CYAN}ℹ${NC}  $*"; }
+ok()    { echo -e "${GREEN}✓${NC}  $*"; }
+warn()  { echo -e "${YELLOW}⚠${NC}  $*"; }
+err()   { echo -e "${RED}✗${NC}  $*" >&2; }
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+
+log_entry() {
+  local log_enabled log_path
+  log_enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
+  log_path=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+
+  if [[ "$log_enabled" != "true" ]]; then
+    return 0
+  fi
+
+  # Resolve relative log path against skill dir
+  if [[ "$log_path" != /* ]]; then
+    log_path="$SKILL_DIR/$log_path"
+  fi
+
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  echo "[$ts] INBOX    | $*" >> "$log_path"
+}
+
+# ── Queue file initialization ────────────────────────────────────────────────
+
+ensure_queue_file() {
+  if [[ ! -f "$QUEUE_PATH" ]]; then
+    echo '[]' > "$QUEUE_PATH"
+    chmod 644 "$QUEUE_PATH"
+  fi
+}
+
+# ── Read queue ───────────────────────────────────────────────────────────────
+
+read_queue() {
+  ensure_queue_file
+  jq -r '.' "$QUEUE_PATH"
+}
+
+# ── Write queue ──────────────────────────────────────────────────────────────
+
+write_queue() {
+  local data="$1"
+  local tmp
+  tmp=$(mktemp)
+  echo "$data" > "$tmp" && mv "$tmp" "$QUEUE_PATH"
+}
+
+# ── Next ref number ──────────────────────────────────────────────────────────
+
+next_ref() {
+  ensure_queue_file
+  jq '[.[].ref // 0] | max + 1' "$QUEUE_PATH" 2>/dev/null || echo "1"
+}
+
+# ── Parse ref list (supports 1,3,5-7 format) ─────────────────────────────────
+
+parse_ref_list() {
+  local input="$1"
+  local refs=()
+
+  IFS=',' read -ra parts <<< "$input"
+  for part in "${parts[@]}"; do
+    part=$(echo "$part" | xargs) # trim whitespace
+    if [[ "$part" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+      # Range
+      local start="${BASH_REMATCH[1]}"
+      local end="${BASH_REMATCH[2]}"
+      for ((i=start; i<=end; i++)); do
+        refs+=("$i")
+      done
+    elif [[ "$part" =~ ^[0-9]+$ ]]; then
+      # Single ref
+      refs+=("$part")
+    else
+      err "Invalid ref format: $part"
+      return 1
+    fi
+  done
+
+  # Output as space-separated
+  echo "${refs[@]}"
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+cmd_list() {
+  ensure_queue_file
+  local queue
+  queue=$(read_queue)
+  
+  local pending_count
+  pending_count=$(echo "$queue" | jq '[.[] | select(.status == "pending")] | length')
+  
+  if [[ "$pending_count" -eq 0 ]]; then
+    echo "No pending messages."
+    return 0
+  fi
+  
+  echo "Pending Messages:"
+  echo ""
+  
+  # Print table header
+  printf "${BOLD}%-6s %-20s %-20s %-15s %s${NC}\n" "Ref#" "Time" "From" "To" "Preview"
+  printf "%-6s %-20s %-20s %-15s %s\n" "────" "──────────────────" "──────────────────" "─────────────" "──────────────────────────────"
+  
+  # Print pending items
+  echo "$queue" | jq -r '.[] | select(.status == "pending") | 
+    [.ref, .queued_at, .from, .target_session, .body_preview] | @tsv' | \
+  while IFS=$'\t' read -r ref time from to preview; do
+    # Truncate fields to fit
+    time=$(echo "$time" | cut -c1-19)
+    from=$(printf "%-20.20s" "$from")
+    to=$(printf "%-15.15s" "$to")
+    preview=$(printf "%-40.40s" "$preview")
+    printf "%-6s %-20s %-20s %-15s %s\n" "$ref" "$time" "$from" "$to" "$preview"
+  done
+  
+  echo ""
+  echo "Total pending: $pending_count"
+}
+
+cmd_count() {
+  ensure_queue_file
+  jq '[.[] | select(.status == "pending")] | length' "$QUEUE_PATH"
+}
+
+cmd_show() {
+  local ref="${1:?Usage: antenna-inbox.sh show <ref>}"
+  ensure_queue_file
+  
+  local item
+  item=$(jq --argjson ref "$ref" '.[] | select(.ref == $ref)' "$QUEUE_PATH")
+  
+  if [[ -z "$item" ]]; then
+    err "Ref #$ref not found in queue"
+    return 1
+  fi
+  
+  # Pretty print the full message
+  echo ""
+  echo -e "${BOLD}Message Ref #$ref${NC}"
+  echo "────────────────────────────────────────────────────────────────"
+  echo "$item" | jq -r '.full_message'
+  echo "────────────────────────────────────────────────────────────────"
+  echo ""
+  echo "Status: $(echo "$item" | jq -r '.status')"
+  echo "From: $(echo "$item" | jq -r '.from') ($(echo "$item" | jq -r '.display_name'))"
+  echo "To: $(echo "$item" | jq -r '.target_session')"
+  echo "Queued: $(echo "$item" | jq -r '.queued_at')"
+  echo "Size: $(echo "$item" | jq -r '.body_chars') chars"
+}
+
+cmd_approve() {
+  local target="${1:?Usage: antenna-inbox.sh approve all|<ref-list>}"
+  ensure_queue_file
+  
+  local queue
+  queue=$(read_queue)
+  
+  if [[ "$target" == "all" ]]; then
+    # Approve all pending
+    local updated
+    updated=$(echo "$queue" | jq '[.[] | if .status == "pending" then .status = "approved" else . end]')
+    write_queue "$updated"
+    local count
+    count=$(echo "$updated" | jq '[.[] | select(.status == "approved")] | length')
+    ok "Approved all pending messages ($count items)"
+    log_entry "action:approve_all | count:$count"
+  else
+    # Parse ref list
+    local refs
+    refs=$(parse_ref_list "$target") || return 1
+    
+    local updated="$queue"
+    local approved_count=0
+    for ref in $refs; do
+      local exists
+      exists=$(echo "$updated" | jq --argjson r "$ref" '[.[] | select(.ref == $r)] | length')
+      if [[ "$exists" -eq 0 ]]; then
+        warn "Ref #$ref not found, skipping"
+        continue
+      fi
+      updated=$(echo "$updated" | jq --argjson r "$ref" \
+        '[.[] | if .ref == $r and .status == "pending" then .status = "approved" else . end]')
+      approved_count=$((approved_count + 1))
+    done
+    
+    write_queue "$updated"
+    ok "Approved $approved_count message(s)"
+    log_entry "action:approve | refs:$target | count:$approved_count"
+  fi
+}
+
+cmd_deny() {
+  local target="${1:?Usage: antenna-inbox.sh deny all|<ref-list>}"
+  ensure_queue_file
+  
+  local queue
+  queue=$(read_queue)
+  
+  if [[ "$target" == "all" ]]; then
+    # Deny all pending
+    local updated
+    updated=$(echo "$queue" | jq '[.[] | if .status == "pending" then .status = "denied" else . end]')
+    write_queue "$updated"
+    local count
+    count=$(echo "$updated" | jq '[.[] | select(.status == "denied")] | length')
+    ok "Denied all pending messages ($count items)"
+    log_entry "action:deny_all | count:$count"
+  else
+    # Parse ref list
+    local refs
+    refs=$(parse_ref_list "$target") || return 1
+    
+    local updated="$queue"
+    local denied_count=0
+    for ref in $refs; do
+      local exists
+      exists=$(echo "$updated" | jq --argjson r "$ref" '[.[] | select(.ref == $r)] | length')
+      if [[ "$exists" -eq 0 ]]; then
+        warn "Ref #$ref not found, skipping"
+        continue
+      fi
+      updated=$(echo "$updated" | jq --argjson r "$ref" \
+        '[.[] | if .ref == $r and .status == "pending" then .status = "denied" else . end]')
+      denied_count=$((denied_count + 1))
+    done
+    
+    write_queue "$updated"
+    ok "Denied $denied_count message(s)"
+    log_entry "action:deny | refs:$target | count:$denied_count"
+  fi
+}
+
+cmd_drain() {
+  ensure_queue_file
+  local queue
+  queue=$(read_queue)
+  
+  # Get approved items
+  local approved
+  approved=$(echo "$queue" | jq '[.[] | select(.status == "approved")]')
+  local approved_count
+  approved_count=$(echo "$approved" | jq 'length')
+  
+  # Get denied items (for removal)
+  local denied_count
+  denied_count=$(echo "$queue" | jq '[.[] | select(.status == "denied")] | length')
+  
+  if [[ "$approved_count" -eq 0 && "$denied_count" -eq 0 ]]; then
+    info "No messages to drain (nothing approved or denied)"
+    return 0
+  fi
+  
+  # Output delivery instructions as JSON (one per line).
+  # The calling agent (Betty, cron job, etc.) should read these and call
+  # sessions_send for each "deliver" action. This avoids re-entering the
+  # relay agent via /hooks/agent which could re-queue the message.
+  #
+  # Each line is a self-contained delivery instruction:
+  #   {"action":"deliver","ref":1,"sessionKey":"agent:betty:main","message":"...","from":"bettyxx"}
+  #   {"action":"remove","ref":2,"from":"unknown_peer"}
+  
+  if [[ "$approved_count" -gt 0 ]]; then
+    echo "$approved" | jq -c '.[] | {action: "deliver", ref: .ref, sessionKey: .session_key, message: .full_message, from: .from}'
+  fi
+  
+  if [[ "$denied_count" -gt 0 ]]; then
+    echo "$queue" | jq -c '.[] | select(.status == "denied") | {action: "remove", ref: .ref, from: .from}'
+  fi
+  
+  # Mark approved items as delivered, remove denied items
+  queue=$(echo "$queue" | jq '
+    [.[] | 
+      if .status == "approved" then .status = "delivered"
+      elif .status == "denied" then empty
+      else . end
+    ]')
+  write_queue "$queue"
+  
+  log_entry "action:drain | delivered:$approved_count | denied:$denied_count"
+  info "Drained: $approved_count to deliver, $denied_count denied (removed)" >&2
+}
+
+cmd_clear() {
+  ensure_queue_file
+  local queue
+  queue=$(read_queue)
+  
+  # Remove all delivered, denied, and failed items
+  local cleared_count
+  cleared_count=$(echo "$queue" | jq '[.[] | select(.status == "delivered" or .status == "denied" or .status == "failed")] | length')
+  
+  if [[ "$cleared_count" -eq 0 ]]; then
+    info "No processed messages to clear"
+    return 0
+  fi
+  
+  local updated
+  updated=$(echo "$queue" | jq '[.[] | select(.status != "delivered" and .status != "denied" and .status != "failed")]')
+  write_queue "$updated"
+  
+  ok "Cleared $cleared_count processed message(s)"
+  log_entry "action:clear | count:$cleared_count"
+}
+
+cmd_queue_add() {
+  # Internal command for antenna-relay.sh to add items to the queue
+  # Expects a JSON object on stdin with all required fields
+  local item
+  item=$(cat)
+  
+  # Validate required fields
+  local from target body
+  from=$(echo "$item" | jq -r '.from // empty')
+  target=$(echo "$item" | jq -r '.target_session // empty')
+  body=$(echo "$item" | jq -r '.full_message // empty')
+  
+  if [[ -z "$from" || -z "$target" || -z "$body" ]]; then
+    err "Missing required fields in queue item"
+    return 1
+  fi
+  
+  ensure_queue_file
+  local ref
+  ref=$(next_ref)
+  
+  # Add ref and timestamps
+  local enriched
+  enriched=$(echo "$item" | jq --argjson ref "$ref" --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    '. + {ref: $ref, queued_at: $ts, status: "pending"}')
+  
+  # Append to queue
+  local queue updated
+  queue=$(read_queue)
+  updated=$(echo "$queue" | jq --argjson item "$enriched" '. + [$item]')
+  write_queue "$updated"
+  
+  # Output result for relay script
+  jq -n \
+    --argjson ref "$ref" \
+    --arg from "$from" \
+    '{action: "queue", ref: $ref, from: $from}'
+  
+  log_entry "action:queue | ref:$ref | from:$from | session:$target"
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+COMMAND="${1:-list}"
+shift || true
+
+case "$COMMAND" in
+  list)       cmd_list ;;
+  count)      cmd_count ;;
+  show)       cmd_show "$@" ;;
+  approve)    cmd_approve "$@" ;;
+  deny)       cmd_deny "$@" ;;
+  drain)      cmd_drain "$@" ;;
+  clear)      cmd_clear ;;
+  queue-add)  cmd_queue_add ;;
+  *)
+    err "Unknown command: $COMMAND"
+    echo "Usage: antenna-inbox.sh list|count|show|approve|deny|drain|clear" >&2
+    exit 1
+    ;;
+esac

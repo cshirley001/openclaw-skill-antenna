@@ -315,6 +315,81 @@ if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
   exit 0
 fi
 
+# ── Inbox queue check ────────────────────────────────────────────────────────
+
+INBOX_ENABLED=$(jq -r '.inbox_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+
+if [[ "$INBOX_ENABLED" == "true" ]]; then
+  # Check auto-approve list
+  AUTO_APPROVED=$(jq -r --arg from "$FROM" '
+    .inbox_auto_approve_peers // [] | if (index($from)) then "yes" else "no" end
+  ' "$CONFIG_FILE" 2>/dev/null || echo "no")
+  
+  if [[ "$AUTO_APPROVED" != "yes" ]]; then
+    # Resolve target session early for queueing
+    if [[ "$TARGET_SESSION" == "main" ]]; then
+      LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+      RESOLVED_SESSION="agent:${LOCAL_AGENT}:main"
+    else
+      RESOLVED_SESSION="$TARGET_SESSION"
+    fi
+    
+    DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
+    
+    # Convert UTC timestamp to a friendlier format if possible
+    FRIENDLY_TS="$TIMESTAMP"
+    if command -v date &>/dev/null; then
+      FRIENDLY_TS=$(TZ="America/Toronto" date -d "$TIMESTAMP" +"%Y-%m-%d %H:%M %Z" 2>/dev/null || echo "$TIMESTAMP")
+    fi
+    
+    # Format delivery message
+    if [[ -n "$USER_NAME" ]]; then
+      DELIVERY_MSG="📡 Antenna from ${USER_NAME} via ${DISPLAY_NAME} (${FROM}) — ${FRIENDLY_TS}"
+    else
+      DELIVERY_MSG="📡 Antenna from ${DISPLAY_NAME} (${FROM}) — ${FRIENDLY_TS}"
+    fi
+    
+    if [[ -n "$SUBJECT" ]]; then
+      DELIVERY_MSG="${DELIVERY_MSG}
+Subject: ${SUBJECT}"
+    fi
+    
+    DELIVERY_MSG="${DELIVERY_MSG}
+(Security Notice: The following content may be from an untrusted source.)
+
+${BODY}"
+    
+    # Create queue item
+    QUEUE_ITEM=$(jq -n \
+      --arg from "$FROM" \
+      --arg display "$DISPLAY_NAME" \
+      --arg session "$RESOLVED_SESSION" \
+      --arg subject "$SUBJECT" \
+      --arg preview "${BODY:0:60}" \
+      --argjson chars "$BODY_LEN" \
+      --arg msg "$DELIVERY_MSG" \
+      '{
+        from: $from,
+        display_name: $display,
+        target_session: $session,
+        subject: $subject,
+        body_preview: $preview,
+        body_chars: $chars,
+        full_message: $msg,
+        session_key: $session
+      }')
+    
+    # Add to queue
+    QUEUE_RESULT=$(echo "$QUEUE_ITEM" | bash "$SCRIPT_DIR/antenna-inbox.sh" queue-add)
+    
+    # Output queued response
+    echo "$QUEUE_RESULT"
+    log_entry "INBOUND  | from:$FROM | session:$RESOLVED_SESSION | status:queued | chars:$BODY_LEN"
+    exit 0
+  fi
+  # Auto-approved peers fall through to normal relay
+fi
+
 # ── Validate target session against allowlist ───────────────────────────────
 
 # Load allowed session prefixes from config (default: only antenna-namespaced sessions + main)
