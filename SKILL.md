@@ -1,6 +1,6 @@
 ---
 name: antenna
-version: 1.0.18
+version: 1.0.20
 description: >
   Inter-host OpenClaw session messaging over reachable HTTPS using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
@@ -12,7 +12,7 @@ description: >
   "inter-host relay", "ping <peer>", "peer list".
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.0.18)
+# Antenna — Inter-Host OpenClaw Messaging (v1.0.20)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -226,7 +226,9 @@ antenna test-suite --report
 - **Relay rejected**: peer not allowlisted, session not allowlisted, or identity secret mismatch
 - **Encrypted exchange fails immediately**: `age` / `age-keygen` missing
 - **Email send convenience fails**: `himalaya` missing or no suitable account configured
-- **Message sent but not visible**: may be a Control UI display lag rather than delivery failure
+- **Message sent but not visible**: check `commands.ownerDisplay = "raw"` on the receiver; without it, hook-delivered messages are processed but invisible in Control UI
+- **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-exec.sh` wrapper exists for this
+- **Repeated approval prompts**: ensure Antenna agent has `tools.exec.security: "allowlist"`, `tools.exec.ask: "off"`, and `sandbox: { mode: "off" }` in registration
 
 ## File Inventory
 
@@ -249,6 +251,7 @@ skills/antenna/
 │   ├── antenna-peers.sh
 │   ├── antenna-doctor.sh
 │   ├── antenna-exchange.sh
+│   ├── antenna-relay-exec.sh
 │   ├── antenna-model-test.sh
 │   └── antenna-test-suite.sh
 ├── docs/
@@ -265,6 +268,12 @@ Notes:
 ## Gateway / Agent Registration
 
 On each host:
-- agent `antenna` registered in OpenClaw config under `agents`
+- agent `antenna` registered in OpenClaw config under `agents` with:
+  - `agentDir` and `workspace` both pointing to the Antenna `agent/` directory
+  - `sandbox: { mode: "off" }`
+  - `tools.exec: { security: "allowlist", ask: "off" }`
+  - restrictive `tools.deny` (block web, browser, image, cron, memory tools)
 - `hooks.allowedAgentIds` includes `"antenna"`
 - `hooks.allowedSessionKeyPrefixes` includes `"hook:antenna"`
+- `commands.ownerDisplay` set to `"raw"` (required for relay messages to appear in Control UI)
+- Exec allowlist entries for Antenna agent: `/usr/bin/bash`, `/usr/bin/echo`, `/usr/bin/jq`, `/usr/bin/cat`

@@ -605,6 +605,13 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       fi
 
       # 3) Register antenna agent if not already present
+      #    The relay agent gets:
+      #    - sandbox off: prevents per-command-hash approval prompts
+      #    - tools.exec.security=allowlist + ask=off: allows allowlisted binaries without prompts
+      #      (sandbox.mode alone is insufficient on newer OpenClaw builds; heredocs still
+      #       trigger approval even with sandbox off, so the relay uses antenna-relay-exec.sh
+      #       wrapper to avoid heredocs entirely)
+      #    - restrictive tools.deny: least-privilege (only exec + sessions_send needed)
       has_antenna=""
       has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
       if [[ "$has_antenna" -eq 0 ]]; then
@@ -615,15 +622,56 @@ if [[ -n "$GATEWAY_CFG" ]]; then
             name: "Antenna Relay",
             model: $model,
             agentDir: $agentdir,
-            workspace: $agentdir
+            workspace: $agentdir,
+            sandbox: { mode: "off" },
+            tools: {
+              exec: { security: "allowlist", ask: "off" },
+              deny: [
+                "group:web", "browser", "image", "image_generate",
+                "cron", "memory_search", "memory_get",
+                "web_search", "web_fetch"
+              ]
+            }
           }])
         ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-        ok "Registered Antenna agent in gateway config (workspace = agentDir)"
+        ok "Registered Antenna agent in gateway config (sandbox off, least-privilege tools)"
       else
         info "Antenna agent already registered in gateway config"
+        # Ensure sandbox.mode=off on existing antenna entry
+        _has_sandbox=$(jq '[.agents.list // [] | .[] | select(.id == "antenna") | .sandbox.mode // empty] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
+        if [[ "$_has_sandbox" -eq 0 ]]; then
+          tmp_gw=$(mktemp)
+          jq '
+            .agents.list = [.agents.list[] |
+              if .id == "antenna" then
+                .sandbox = { mode: "off" } |
+                .tools = (.tools // {}) |
+                .tools.exec = { security: "allowlist", ask: "off" } |
+                .tools.deny = (.tools.deny // [
+                  "group:web", "browser", "image", "image_generate",
+                  "cron", "memory_search", "memory_get",
+                  "web_search", "web_fetch"
+                ])
+              else . end
+            ]
+          ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+          ok "Updated existing Antenna agent: sandbox off, exec allowlist mode, least-privilege tools"
+        fi
       fi
 
-      # 4) Register exec allowlist for the antenna agent
+      # 4) Set commands.ownerDisplay = "raw" for Control UI visibility
+      #    Without this, hook-delivered messages (including Antenna relays)
+      #    are processed but not displayed in the Control UI chat view.
+      _current_od=$(jq -r '.commands.ownerDisplay // empty' "$GATEWAY_CFG" 2>/dev/null || true)
+      if [[ "$_current_od" != "raw" ]]; then
+        tmp_gw=$(mktemp)
+        jq '.commands.ownerDisplay = "raw"' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+        ok "Set commands.ownerDisplay = \"raw\" (required for Control UI visibility)"
+      else
+        info "commands.ownerDisplay already set to \"raw\""
+      fi
+
+      # 6) Register exec allowlist for the antenna agent
       #    The relay agent needs to run shell commands (bash, echo, jq, cat)
       #    without requiring manual approval on each inbound message.
       if command -v openclaw &>/dev/null; then
@@ -646,7 +694,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         info "  openclaw approvals allowlist add --agent antenna /usr/bin/cat"
       fi
 
-      # 5) Validate
+      # 7) Validate
       if jq empty "$GATEWAY_CFG" 2>/dev/null; then
         ok "Gateway config is valid JSON after changes"
         AUTO_REGISTERED=true
@@ -669,21 +717,33 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "       allowedAgentIds: [\"antenna\"]"
   echo "       allowedSessionKeyPrefixes: [\"hook:\", \"agent:${AGENT_ID}:\"]"
   echo ""
-  echo -e "  ${BOLD}2. Register the Antenna agent:${NC}"
+  echo -e "  ${BOLD}2. Register the Antenna agent (sandbox off + exec allowlist + least-privilege):${NC}"
   echo "     agents:"
   echo "       - id: antenna"
   echo "         name: Antenna Relay"
   echo "         model: $RELAY_MODEL"
   echo "         agentDir: $SKILL_DIR/agent"
   echo "         workspace: $SKILL_DIR/agent"
+  echo "         sandbox:"
+  echo "           mode: off"
+  echo "         tools:"
+  echo "           exec:"
+  echo "             security: allowlist"
+  echo "             ask: off"
+  echo "           deny: [group:web, browser, image, image_generate,"
+  echo "                  cron, memory_search, memory_get, web_search, web_fetch]"
   echo ""
-  echo -e "  ${BOLD}3. Allow exec for the relay agent (no manual approval needed):${NC}"
+  echo -e "  ${BOLD}3. Enable Control UI visibility for hook messages:${NC}"
+  echo "     commands:"
+  echo "       ownerDisplay: raw"
+  echo ""
+  echo -e "  ${BOLD}4. Allow exec for the relay agent (no manual approval needed):${NC}"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/bash"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/echo"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/jq"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/cat"
   echo ""
-  echo -e "  ${BOLD}4. Restart your gateway:${NC}"
+  echo -e "  ${BOLD}5. Restart your gateway:${NC}"
   echo "     openclaw gateway restart"
 fi
 echo ""

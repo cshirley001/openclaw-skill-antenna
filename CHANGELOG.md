@@ -4,6 +4,24 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.0.20] — 2026-04-06
+### Added
+- **Heredoc-free relay wrapper (`antenna-relay-exec.sh`):** New wrapper script that accepts the raw message as `$1`, writes it to a temp file, and pipes to `antenna-relay.sh --stdin`. Avoids all dynamic shell constructs in the exec call.
+- **Per-agent exec policy:** Setup now configures `tools.exec.security = "allowlist"` and `tools.exec.ask = "off"` on the antenna agent.
+
+### Changed
+- **Relay agent instructions (`agent/AGENTS.md`):** Fully rewritten for allowlist compatibility. The exec command is now a single simple invocation: `bash ../scripts/antenna-relay-exec.sh '<message>'` — no config lookup, no `$(...)`, no chaining. Explicit prohibition on heredocs, here-strings, command substitution, semicolons, `&&`, `||`, and backticks added to agent rules.
+- **Setup manual instructions:** Updated to include `tools.exec.security: allowlist` and `tools.exec.ask: off` in the agent registration block.
+
+### Fixed
+- **Root cause of persistent exec approvals (CONFIRMED):** OpenClaw's allowlist evaluator flags two classes of dynamic shell constructs — `requiresHeredocApproval` (triggered by `<<` tokens) and inline eval/command substitution (triggered by `$(...)` and backticks). The v1.0.19 relay instructions eliminated heredocs but still used `$(jq -r '.install_path' ...)` for config lookup, which continued to trip allowlist denial. Fixed by removing ALL dynamic constructs: the agent now calls the wrapper via relative path (`../scripts/`) with no config resolution in the exec command itself. The wrapper handles path resolution internally via `SCRIPT_DIR`.
+- **Confirmed working:** Tests 11 and 12 on AntTest (clean Ubuntu 24.04 WSL2 environment) both delivered without any approval prompt or exec denial.
+
+## [1.0.19] — 2026-04-06
+### Added
+- **Control UI visibility:** Setup now sets `commands.ownerDisplay = "raw"` in gateway config. Without this, hook-delivered messages (including Antenna relays) are processed and delivered but invisible in the Control UI chat view. This was the root cause of the long-standing "messages not showing up" issue.
+- **Least-privilege agent registration:** Antenna agent is now registered with `sandbox: { mode: "off" }` and a restrictive `tools.deny` list. The tools.deny list blocks web, browser, image, cron, and memory tools — the relay only needs `exec` and `sessions_send`.
+
 ## [1.0.18] — 2026-04-03
 ### Added
 - Interactive email prompt after bundle creation: when running `initiate` or `reply` interactively with gog or himalaya available, the wizard now offers to email the bundle directly — no `--send-email` flag needed.

@@ -9,6 +9,15 @@ antenna-peers.json
 **/secrets/
 *.token
 
+# OpenClaw workspace artifacts (auto-generated in agent/)
+agent/.openclaw/
+agent/BOOTSTRAP.md
+agent/HEARTBEAT.md
+agent/IDENTITY.md
+agent/SOUL.md
+agent/USER.md
+agent/models.json
+
 # OS junk
 .DS_Store
 Thumbs.db
