@@ -179,11 +179,27 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   # Strip trailing slash
   HOST_URL="${HOST_URL%/}"
 
-  # Agent ID
+  # Agent ID — try to auto-detect from gateway config
   header "Step 3/7 — Agent Identity"
   info "This is your primary assistant agent's ID in your gateway config."
   info "Used to resolve 'main' → 'agent:<id>:main'."
-  prompt AGENT_ID "Primary agent ID" ""
+  DETECTED_AGENT=""
+  for candidate in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do
+    if [[ -f "$candidate" ]]; then
+      # Find the first non-antenna agent ID
+      DETECTED_AGENT=$(jq -r '
+        .agents.entries // {} | to_entries[]
+        | select(.key != "antenna")
+        | .key' "$candidate" 2>/dev/null | head -1)
+      [[ -n "$DETECTED_AGENT" ]] && break
+    fi
+  done
+  if [[ -n "$DETECTED_AGENT" ]]; then
+    info "Detected agent from gateway config: ${BOLD}$DETECTED_AGENT${NC}"
+    prompt AGENT_ID "Primary agent ID" "$DETECTED_AGENT"
+  else
+    prompt AGENT_ID "Primary agent ID" ""
+  fi
 
   # Relay model
   header "Step 4/7 — Relay Model"
@@ -268,11 +284,11 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo ""
   echo "  Antenna can handle inbound messages in two ways:"
   echo ""
-  echo "    ${BOLD}Instant relay${NC} (default)"
+  echo -e "    ${BOLD}Instant relay${NC} (default)"
   echo "      Messages arrive in your session immediately."
   echo "      Requires sandbox-off on the relay agent."
   echo ""
-  echo "    ${BOLD}Inbox queue${NC} (more secure)"
+  echo -e "    ${BOLD}Inbox queue${NC} (more secure)"
   echo "      Messages are held for your review before delivery."
   echo "      You approve/deny via 'antenna inbox' commands."
   echo "      Trusted peers can auto-approve (bypass the queue)."
@@ -735,6 +751,27 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         info "commands.ownerDisplay already set to \"raw\""
       fi
 
+      # 5) Enable cross-agent session visibility
+      #    The relay agent needs sessions_send to deliver messages into other agents' sessions.
+      #    Without this, OpenClaw blocks cross-agent session access.
+      _current_vis=$(jq -r '.tools.sessions.visibility // empty' "$GATEWAY_CFG" 2>/dev/null || true)
+      if [[ "$_current_vis" != "all" ]]; then
+        tmp_gw=$(mktemp)
+        jq '.tools.sessions.visibility = "all"' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+        ok "Set tools.sessions.visibility = \"all\" (required for cross-agent relay)"
+      else
+        info "tools.sessions.visibility already set to \"all\""
+      fi
+
+      _current_a2a=$(jq -r '.tools.agentToAgent.enabled // empty' "$GATEWAY_CFG" 2>/dev/null || true)
+      if [[ "$_current_a2a" != "true" ]]; then
+        tmp_gw=$(mktemp)
+        jq '.tools.agentToAgent.enabled = true' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
+        ok "Set tools.agentToAgent.enabled = true"
+      else
+        info "tools.agentToAgent.enabled already true"
+      fi
+
       # 6) Register exec allowlist for the antenna agent
       #    The relay agent needs to run shell commands (bash, echo, jq, cat)
       #    without requiring manual approval on each inbound message.
@@ -801,13 +838,20 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "     commands:"
   echo "       ownerDisplay: raw"
   echo ""
-  echo -e "  ${BOLD}4. Allow exec for the relay agent (no manual approval needed):${NC}"
+  echo -e "  ${BOLD}4. Enable cross-agent session access:${NC}"
+  echo "     tools:"
+  echo "       sessions:"
+  echo "         visibility: all"
+  echo "       agentToAgent:"
+  echo "         enabled: true"
+  echo ""
+  echo -e "  ${BOLD}5. Allow exec for the relay agent (no manual approval needed):${NC}"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/bash"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/echo"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/jq"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/cat"
   echo ""
-  echo -e "  ${BOLD}5. Restart your gateway:${NC}"
+  echo -e "  ${BOLD}6. Restart your gateway:${NC}"
   echo "     openclaw gateway restart"
 fi
 echo ""

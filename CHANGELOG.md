@@ -4,6 +4,14 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-04-06
+
+### Fixed
+- **Setup Step 5 display:** `echo` → `echo -e` for ANSI bold/color codes in the inbox mode description
+- **Agent ID auto-detection:** Setup now reads gateway config to pre-fill the primary agent ID, reducing the chance of entering the wrong value and getting misrouted sessions (e.g., `agent:betty:main` vs `agent:main:main`)
+- **Cross-agent session visibility:** Setup now auto-configures `tools.sessions.visibility=all` and `tools.agentToAgent.enabled=true` in the gateway config, fixing "Session send visibility is restricted" errors on fresh installs
+- **Manual fallback instructions** updated with the new visibility/agent-to-agent settings (Step 4) and renumbered
+
 ## [1.1.0] — 2026-04-06
 
 ### Summary

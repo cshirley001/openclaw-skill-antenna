@@ -1,6 +1,6 @@
 ---
 name: antenna
-version: 1.1.0
+version: 1.1.1
 description: >
   Inter-host OpenClaw session messaging over reachable HTTPS using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
