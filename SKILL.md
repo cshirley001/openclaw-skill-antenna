@@ -1,18 +1,21 @@
 ---
 name: antenna
-version: 1.1.2
 description: >
-  Inter-host OpenClaw session messaging over reachable HTTPS using built-in gateway webhook hooks.
-  Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
-  (2) checking status/health of a remote OpenClaw peer, (3) managing the peer registry
-  (adding/removing/listing known peers), (4) exchanging bootstrap trust material for new peers,
-  (5) any cross-host agent communication that should NOT go through visible chat channels like
-  Telegram/WhatsApp/Discord. Triggers: "send to <peer>", "message the other host",
-  "antenna send", "antenna status", "antenna peers exchange", "cross-host message",
-  "inter-host relay", "ping <peer>", "peer list".
+  Inter-host OpenClaw session messaging over reachable HTTPS using built-in
+  gateway webhook hooks. Use when: (1) sending a message from this OpenClaw
+  instance to another host's session, (2) checking status/health of a remote
+  peer, (3) managing the peer registry (adding/removing/listing known peers),
+  (4) exchanging bootstrap trust material for new peers, (5) any cross-host
+  agent communication that should NOT go through visible chat channels like
+  Telegram/WhatsApp/Discord. Triggers: "send to PEER", "message the other
+  host", "antenna send", "antenna status", "antenna peers exchange",
+  "cross-host message", "inter-host relay", "ping PEER", "peer list",
+  "check antenna inbox", "approve message".
+metadata:
+  version: 1.1.3
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.1.2)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.3)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 

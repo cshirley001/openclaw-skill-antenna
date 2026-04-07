@@ -4,6 +4,12 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-04-06
+
+### Fixed
+- **SKILL.md frontmatter compliance:** Removed non-standard `version` key (moved to `metadata.version`); replaced angle brackets in description with uppercase placeholders. Now passes AgentSkills `quick_validate.py` cleanly.
+- **Trigger coverage:** Added "check antenna inbox" and "approve message" to description triggers.
+
 ## [1.1.2] — 2026-04-06
 
 ### Added
