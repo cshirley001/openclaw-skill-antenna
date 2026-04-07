@@ -1,6 +1,6 @@
 ---
 name: antenna
-version: 1.1.1
+version: 1.1.2
 description: >
   Inter-host OpenClaw session messaging over reachable HTTPS using built-in gateway webhook hooks.
   Use when: (1) sending a message from this OpenClaw instance to another host's OpenClaw session,
@@ -12,7 +12,7 @@ description: >
   "inter-host relay", "ping <peer>", "peer list".
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.1.0)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.2)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 

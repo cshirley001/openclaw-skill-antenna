@@ -807,6 +807,63 @@ if [[ -n "$GATEWAY_CFG" ]]; then
   fi
 fi
 
+# ── PATH symlink ─────────────────────────────────────────────────────────────
+# Ensure `antenna` CLI is on PATH so agents (and humans) can just type "antenna".
+header "═══ CLI PATH Setup ═══"
+
+ANTENNA_BIN="$SKILL_DIR/bin/antenna"
+SYMLINK_TARGET=""
+
+# Prefer /usr/local/bin; fall back to ~/.local/bin
+for candidate in /usr/local/bin "$HOME/.local/bin"; do
+  if [[ -d "$candidate" ]] && echo "$PATH" | tr ':' '\n' | grep -qx "$candidate"; then
+    SYMLINK_TARGET="$candidate/antenna"
+    break
+  fi
+done
+
+# If ~/.local/bin doesn't exist yet but /usr/local/bin isn't writable, create it
+if [[ -z "$SYMLINK_TARGET" ]]; then
+  if [[ -w /usr/local/bin ]]; then
+    SYMLINK_TARGET="/usr/local/bin/antenna"
+  else
+    mkdir -p "$HOME/.local/bin"
+    SYMLINK_TARGET="$HOME/.local/bin/antenna"
+    # Ensure it's on PATH for current and future shells
+    if ! echo "$PATH" | tr ':' '\n' | grep -qx "$HOME/.local/bin"; then
+      export PATH="$HOME/.local/bin:$PATH"
+      # Append to profile if not already there
+      for profile in "$HOME/.bashrc" "$HOME/.profile"; do
+        if [[ -f "$profile" ]] && ! grep -q '\.local/bin' "$profile"; then
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$profile"
+          info "Added ~/.local/bin to PATH in $(basename "$profile")"
+          break
+        fi
+      done
+    fi
+  fi
+fi
+
+if [[ -n "$SYMLINK_TARGET" ]]; then
+  if [[ -L "$SYMLINK_TARGET" ]] && [[ "$(readlink -f "$SYMLINK_TARGET")" == "$(readlink -f "$ANTENNA_BIN")" ]]; then
+    ok "antenna CLI already on PATH: $SYMLINK_TARGET"
+  else
+    # Remove stale symlink or file if it exists
+    rm -f "$SYMLINK_TARGET" 2>/dev/null || true
+    if ln -s "$ANTENNA_BIN" "$SYMLINK_TARGET" 2>/dev/null; then
+      ok "Symlinked antenna CLI → $SYMLINK_TARGET"
+    elif sudo ln -s "$ANTENNA_BIN" "$SYMLINK_TARGET" 2>/dev/null; then
+      ok "Symlinked antenna CLI → $SYMLINK_TARGET (with sudo)"
+    else
+      warn "Could not create symlink at $SYMLINK_TARGET"
+      echo "  Manual fix: ln -s $ANTENNA_BIN /usr/local/bin/antenna"
+    fi
+  fi
+else
+  warn "Could not determine a suitable PATH directory for the antenna CLI."
+  echo "  Manual fix: ln -s $ANTENNA_BIN /usr/local/bin/antenna"
+fi
+
 if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "  Add the following to your OpenClaw gateway config (openclaw.yaml or equivalent):"
   echo ""

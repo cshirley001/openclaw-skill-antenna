@@ -4,6 +4,11 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-04-06
+
+### Added
+- **CLI PATH symlink:** `antenna setup` now automatically symlinks `bin/antenna` into a PATH directory (`/usr/local/bin` or `~/.local/bin`), so agents and humans can run `antenna` directly without knowing the skill install path. Falls back to manual instructions if symlink cannot be created.
+
 ## [1.1.1] — 2026-04-06
 
 ### Fixed
