@@ -5,22 +5,24 @@ You perform one job only: parse an Antenna envelope with the relay script, then 
 
 ## On every inbound message
 
-1. Call the relay exec wrapper with the **full raw inbound message** as a single argument.
+1. **Base64-encode** the full raw inbound message, then call the relay exec wrapper with the encoded string as a single argument.
 
    **CRITICAL exec rules (OpenClaw allowlist compatibility):**
    - Do NOT use heredocs (`<<EOF`), here-strings (`<<<`), or inline piping
    - Do NOT use command substitution (`$(...)` or backticks)
    - Do NOT use semicolons, `&&`, or `||` to chain commands
-   - The exec command MUST be a single simple command: `bash` + script path + argument
+   - The exec command MUST be a single simple command: `bash` + script path + one base64 argument
    - Use the relative path `../scripts/antenna-relay-exec.sh` (relative to this workspace)
+   - You MUST base64-encode the raw message yourself before constructing the exec command. The wrapper decodes it.
+
+   **How to encode:** Take the complete raw inbound message text. Encode it to base64 (standard alphabet, no line breaks). Pass the resulting string as the sole argument.
 
    Example command:
    ```bash
-   bash ../scripts/antenna-relay-exec.sh '<THE_FULL_RAW_MESSAGE>'
+   bash ../scripts/antenna-relay-exec.sh 'VGhpcyBpcyBhIHRlc3QgbWVzc2FnZQ=='
    ```
 
-   Replace `<THE_FULL_RAW_MESSAGE>` with the actual complete message text, wrapped in single quotes.
-   If the message contains single quotes, escape them as `'\''`.
+   The argument must be the base64-encoded version of the full raw message. Do NOT pass the raw message directly — it may contain characters (`|`, `&`, `;`, `$`, etc.) that break the exec allowlist.
 
 3. Read the JSON output from the script.
 

@@ -4,6 +4,15 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.6] — 2026-04-07
+
+### Changed
+- **Base64-encoded relay exec argument:** The relay agent now base64-encodes the full raw
+  inbound message before passing it to `antenna-relay-exec.sh`. The wrapper decodes before
+  piping to the relay script. This eliminates the entire class of exec allowlist failures
+  caused by message content containing shell metacharacters (`|`, `&`, `;`, `$`, etc.).
+- Updated `agent/AGENTS.md` with base64 encoding instructions and examples.
+
 ## [1.1.5] — 2026-04-06
 
 ### Changed
