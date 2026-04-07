@@ -4,6 +4,14 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.5] — 2026-04-06
+
+### Changed
+- **Lean skill package:** Split docs into two tiers for distribution clarity:
+  - `references/` (ships with skill): `ANTENNA-RELAY-FSD.md`, `issues.md` — files the agent may load during work
+  - `docs/` (repo-only, operator/historical): security assessment, red team report, removal checklist, design-history docs
+- Updated file inventory in SKILL.md and fixed cross-references in CHANGELOG.md.
+
 ## [1.1.4] — 2026-04-06
 
 ### Changed
@@ -215,7 +223,7 @@ Token file permission audit in `antenna status` and log value sanitization in th
 - `scripts/antenna-relay.sh` — all header values sanitized immediately after extraction; verbose log preview also sanitized.
 
 ### Security
-Addresses Red Team findings #5 (token file exposure) and #6 (log injection/forgery) from `references/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team findings #5 (token file exposure) and #6 (log injection/forgery) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.6] — 2026-03-30
 
@@ -234,7 +242,7 @@ Rate limiting: per-peer and global inbound message throttling to prevent relay a
 - `.gitignore` — excludes `antenna-ratelimit.json`.
 
 ### Security
-Addresses Red Team finding #4 (DoS via relay agent saturation) from `references/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team finding #4 (DoS via relay agent saturation) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.5] — 2026-03-30
 
@@ -251,7 +259,7 @@ Security hardening: untrusted-input framing on all relayed messages and inbound 
 - `scripts/antenna-test-suite.sh` — test sessions updated from `agent:test:main` to `agent:antenna:test` (conforming to the security model).
 
 ### Security
-Addresses Red Team findings #1 (prompt injection via message body) and #3 (session target injection) from `references/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team findings #1 (prompt injection via message body) and #3 (session target injection) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.4] — 2026-03-30
 

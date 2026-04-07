@@ -311,8 +311,14 @@ skills/antenna/
 │   ├── antenna-model-test.sh
 │   └── antenna-test-suite.sh
 ├── references/
-│   ├── ANTENNA-RELAY-FSD.md
-│   └── SECURITY-ASSESSMENT-v1.0.20.md
+│   ├── ANTENNA-RELAY-FSD.md          # Relay architecture contract
+│   └── issues.md                      # Known issues / gaps tracker
+├── docs/                               # Repo-only (operator / historical)
+│   ├── full-removal-checklist.md
+│   ├── SECURITY-ASSESSMENT-v1.0.20.md
+│   ├── RED-TEAM-REPORT-v1.0.4.md
+│   ├── LAYER-A-SECRET-EXCHANGE-PLAN.md
+│   └── SECRET-EXCHANGE-OPTIONS.md
 └── agent/
     ├── AGENTS.md
     └── TOOLS.md
