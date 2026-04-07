@@ -12,10 +12,10 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.1.3
+  version: 1.1.4
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.1.3)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.4)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -310,7 +310,7 @@ skills/antenna/
 │   ├── antenna-inbox.sh
 │   ├── antenna-model-test.sh
 │   └── antenna-test-suite.sh
-├── docs/
+├── references/
 │   ├── ANTENNA-RELAY-FSD.md
 │   └── SECURITY-ASSESSMENT-v1.0.20.md
 └── agent/

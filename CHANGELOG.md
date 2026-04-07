@@ -4,6 +4,12 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.4] — 2026-04-06
+
+### Changed
+- **Directory convention:** Renamed `docs/` → `references/` to align with AgentSkills spec (`scripts/`, `references/`, `assets/` canonical layout). All internal cross-references updated.
+- `agent/` and `bin/` retained as-is — these are infrastructure-skill necessities with no spec equivalent.
+
 ## [1.1.3] — 2026-04-06
 
 ### Fixed
@@ -158,7 +164,7 @@ Layer A encrypted bootstrap exchange implemented and docs synced to the current 
 - `scripts/antenna-exchange.sh` rewritten from the older raw-secret wizard into a dispatcher that supports encrypted bundle exchange plus explicit legacy fallback.
 - `bin/antenna` help text updated for the new exchange flow and peer-add support for `--exchange-public-key`.
 - `antenna status` now reports local Layer A key presence and warns when peers lack exchange public keys.
-- `docs/ANTENNA-RELAY-FSD.md` and `SKILL.md` updated to reflect:
+- `references/ANTENNA-RELAY-FSD.md` and `SKILL.md` updated to reflect:
   - reachable HTTPS peer model,
   - layered trust (`url` + hook token + per-peer identity secret),
   - Layer A encrypted onboarding,
@@ -209,7 +215,7 @@ Token file permission audit in `antenna status` and log value sanitization in th
 - `scripts/antenna-relay.sh` — all header values sanitized immediately after extraction; verbose log preview also sanitized.
 
 ### Security
-Addresses Red Team findings #5 (token file exposure) and #6 (log injection/forgery) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team findings #5 (token file exposure) and #6 (log injection/forgery) from `references/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.6] — 2026-03-30
 
@@ -228,7 +234,7 @@ Rate limiting: per-peer and global inbound message throttling to prevent relay a
 - `.gitignore` — excludes `antenna-ratelimit.json`.
 
 ### Security
-Addresses Red Team finding #4 (DoS via relay agent saturation) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team finding #4 (DoS via relay agent saturation) from `references/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.5] — 2026-03-30
 
@@ -245,7 +251,7 @@ Security hardening: untrusted-input framing on all relayed messages and inbound 
 - `scripts/antenna-test-suite.sh` — test sessions updated from `agent:test:main` to `agent:antenna:test` (conforming to the security model).
 
 ### Security
-Addresses Red Team findings #1 (prompt injection via message body) and #3 (session target injection) from `docs/RED-TEAM-REPORT-v1.0.4.md`.
+Addresses Red Team findings #1 (prompt injection via message body) and #3 (session target injection) from `references/RED-TEAM-REPORT-v1.0.4.md`.
 
 ## [1.0.4] — 2026-03-30
 
@@ -329,7 +335,7 @@ Portability cleanup. Removed hardcoded host/user/model assumptions from shareabl
 - `agent/TOOLS.md` — same path portability fix
 - `SKILL.md` — generic `<placeholder>` examples instead of Betty/Corey-specific names and URLs
 - `README.md` — same generic examples treatment
-- `docs/ANTENNA-RELAY-FSD.md` — removed host-specific peer IDs, session keys, and display names from examples
+- `references/ANTENNA-RELAY-FSD.md` — removed host-specific peer IDs, session keys, and display names from examples
 - `bin/antenna` — generic usage examples; status fallback model shows `"unset"` instead of `"mini"`
 - `scripts/antenna-relay.sh` — fallback `local_agent_id` changed from `"betty"` to `"agent"`
 
@@ -354,7 +360,7 @@ First stable release. Script-first relay architecture with dedicated lightweight
 - `antenna-peers.json` — flat peer registry with URL, token file, display name, self flag
 - `agent/AGENTS.md` — dedicated Antenna relay agent instructions
 - `agent/TOOLS.md` — agent tool reference (relay script paths)
-- `docs/ANTENNA-RELAY-FSD.md` — full functional specification (v1.0.0)
+- `references/ANTENNA-RELAY-FSD.md` — full functional specification (v1.0.0)
 - Transaction logging to `antenna.log` (metadata only; verbose mode optional)
 - Sender validation against `allowed_inbound_peers` on receipt
 - Outbound validation against `allowed_outbound_peers` on send
@@ -383,4 +389,4 @@ First stable release. Script-first relay architecture with dedicated lightweight
 
 ## [0.x] — 2026-03-26 to 2026-03-28
 
-Development iterations. Not individually versioned. See `docs/ANTENNA-RELAY-FSD.md` revision history for details.
+Development iterations. Not individually versioned. See `references/ANTENNA-RELAY-FSD.md` revision history for details.

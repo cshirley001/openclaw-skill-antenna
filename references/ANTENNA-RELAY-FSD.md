@@ -634,7 +634,7 @@ skills/antenna/
 │   ├── antenna-peers.sh        # Peer listing utility
 │   ├── antenna-model-test.sh   # Self-loop integration tester (smoke)
 │   └── antenna-test-suite.sh   # Three-tier model/script test suite
-├── docs/
+├── references/
 │   └── ANTENNA-RELAY-FSD.md    # This document
 └── agent/
     ├── AGENTS.md               # Antenna agent instructions
