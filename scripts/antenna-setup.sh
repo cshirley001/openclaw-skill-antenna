@@ -159,7 +159,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "    3. Your primary agent ID (e.g., 'betty')"
   echo "    4. A relay model (lightweight is best — the relay doesn't think, it dispatches)"
   echo "    5. Whether to enable inbox mode (optional, more secure)"
-  echo "    6. Path to your OpenClaw hooks bearer token file"
+  echo "    6. Your OpenClaw hooks bearer token (setup can auto-detect or generate one)"
   echo ""
 fi
 
@@ -244,7 +244,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     info "Available model aliases from your gateway config:"
     _offset=1
     if [[ -n "$_default_model" ]]; then
-      echo "    ${BOLD}D. (default) → $_default_model${NC}"
+      echo -e "    ${BOLD}D. (default) → $_default_model${NC}"
     fi
     for _i in "${!_alias_names[@]}"; do
       echo "    $((_i+1)). ${_alias_names[$_i]} → ${_alias_ids[$_i]}"
@@ -939,7 +939,7 @@ echo "  The fun part! The pairing wizard walks you through connecting"
 echo "  to another host — keypair exchange, encrypted bundles, and your"
 echo "  first message."
 echo ""
-echo "  Run it now or save it for later:  ${BOLD}antenna pair${NC}"
+echo -e "  Run it now or save it for later:  ${BOLD}antenna pair${NC}"
 echo ""
 echo "  Manual/legacy alternative (if age is unavailable):"
 echo "     antenna peers add <peer-id> --url <url> --token-file <path>"

@@ -204,6 +204,8 @@ fi
 if wizard_prompt 5 $TOTAL_STEPS "Import their bundle"; then
   echo ""
   prompt_value IMPORT_FILE "Path to the reply bundle you received" ""
+  # Expand leading ~ to $HOME (read doesn't do shell expansion)
+  IMPORT_FILE="${IMPORT_FILE/#\~/$HOME}"
   if [[ -z "$IMPORT_FILE" ]]; then
     err "No file path provided."
   elif [[ ! -f "$IMPORT_FILE" ]]; then
