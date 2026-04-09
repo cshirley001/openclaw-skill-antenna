@@ -12,10 +12,10 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.1.4
+  version: 1.1.8
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.1.4)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.8)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -45,11 +45,12 @@ Messages flow through a script-first relay pipeline:
 
 1. **Sender** runs `antenna-send.sh` which builds an `[ANTENNA_RELAY]` envelope and POSTs it to the recipient's `/hooks/agent` endpoint.
 2. **Recipient gateway** dispatches to the dedicated **Antenna agent**.
-3. **Antenna agent** runs `antenna-relay.sh` which deterministically parses, validates, and formats the message.
-4. **Antenna agent** calls `sessions_send` to inject the formatted message into the target session.
-5. **Message appears** persistently in the target conversation thread.
+3. **Antenna agent** writes the raw inbound message to a temp file using the `write` tool (structured API call, no shell metacharacter concerns).
+4. **Antenna agent** execs `antenna-relay-file.sh` with the file path — the script feeds the message to `antenna-relay.sh` which deterministically parses, validates, and formats it.
+5. **Antenna agent** calls `sessions_send` to inject the formatted message into the target session.
+6. **Message appears** persistently in the target conversation thread.
 
-The LLM never performs relay parsing logic; the scripts do.
+The LLM never performs relay parsing, encoding, or transformation; the scripts do all processing.
 
 ## Trust Model
 
@@ -282,7 +283,8 @@ summarize the queue and ask me.
 - **Encrypted exchange fails immediately**: `age` / `age-keygen` missing
 - **Email send convenience fails**: `himalaya` missing or no suitable account configured
 - **Message sent but not visible**: check `commands.ownerDisplay = "raw"` on the receiver; without it, hook-delivered messages are processed but invisible in Control UI
-- **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-exec.sh` wrapper exists for this
+- **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-file.sh` wrapper accepts a file path only
+- **Model refuses to encode / base64 errors**: this was fixed in v1.1.8 — the model no longer performs any encoding; if you see encoding errors, ensure you are on v1.1.8+ with the updated `agent/AGENTS.md`
 - **Repeated approval prompts**: ensure Antenna agent has `tools.exec.security: "allowlist"`, `tools.exec.ask: "off"`, and `sandbox: { mode: "off" }` in registration
 
 ## File Inventory
@@ -302,11 +304,12 @@ skills/antenna/
 ├── scripts/
 │   ├── antenna-send.sh
 │   ├── antenna-relay.sh
+│   ├── antenna-relay-file.sh           # v1.1.8 — file-based relay input (preferred)
+│   ├── antenna-relay-exec.sh            # v1.1.6 — base64 wrapper (legacy fallback)
 │   ├── antenna-health.sh
 │   ├── antenna-peers.sh
 │   ├── antenna-doctor.sh
 │   ├── antenna-exchange.sh
-│   ├── antenna-relay-exec.sh
 │   ├── antenna-inbox.sh
 │   ├── antenna-model-test.sh
 │   └── antenna-test-suite.sh

@@ -4,6 +4,31 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.8] — 2026-04-09
+
+### Changed
+- **File-based relay input (eliminates model encoding dependency):** The relay agent no longer
+  performs base64 encoding. Instead, it uses the `write` tool to save the raw inbound message
+  to a temporary file (`/tmp/antenna-relay-msg.txt`), then execs `antenna-relay-file.sh` with
+  the file path as the sole argument. The script reads the file and pipes it to `antenna-relay.sh
+  --stdin`. This removes the entire class of model-dependent encoding failures — notably
+  `gpt-5.4` refused to base64-encode large payloads under the v1.1.6 approach.
+- Updated `agent/AGENTS.md` with the new write-then-exec flow and simplified instructions.
+- Supersedes `antenna-relay-exec.sh` (base64 wrapper) as the primary relay entry point.
+
+### Added
+- `scripts/antenna-relay-file.sh` — reads raw message from a file and feeds to relay via stdin.
+
+## [1.1.7] — 2026-04-09
+
+### Fixed
+- **`local` keyword outside function:** Fixed `scripts/antenna-relay.sh` line 229 where
+  `local auth_hint expected_hint diag_msg` was used at top-level script scope (outside any
+  function). This caused `local: can only be used in a function` errors on the peer-auth
+  mismatch diagnostic path. Replaced with plain variable assignments. Bug was latent on hosts
+  where auth always succeeded; only surfaced on AntTest where peer-secret mismatches triggered
+  the affected branch.
+
 ## [1.1.6] — 2026-04-07
 
 ### Changed
