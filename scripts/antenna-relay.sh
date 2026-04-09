@@ -226,7 +226,6 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
 
   if [[ "$AUTH_HEADER" != "$EXPECTED_SECRET" ]]; then
     # Diagnostic: provide actionable detail without exposing actual secrets
-    local auth_hint expected_hint diag_msg
     auth_hint="${AUTH_HEADER:0:6}...${AUTH_HEADER: -4}"
     expected_hint="${EXPECTED_SECRET:0:6}...${EXPECTED_SECRET: -4}"
     diag_msg="Peer auth failed: invalid secret (from: $FROM). Received prefix/suffix: ${auth_hint}, expected prefix/suffix: ${expected_hint}. Likely cause: peer secrets are out of sync. Fix: re-run 'antenna peers exchange' between hosts to resync, or verify peer_secret_file points to the correct file on both sides."
