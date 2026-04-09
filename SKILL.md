@@ -12,10 +12,10 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.1.8
+  version: 1.1.9
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.1.8)
+# Antenna — Inter-Host OpenClaw Messaging (v1.1.9)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -153,7 +153,16 @@ echo "Long message body..." | antenna send <peer> --stdin
 antenna send <peer> --dry-run "Test message"
 ```
 
-### Peer onboarding / bootstrap exchange
+### Peer pairing (interactive wizard)
+
+```bash
+antenna pair                          # Full interactive wizard
+antenna pair --peer-id myserver       # Pre-fill peer ID
+```
+
+The wizard walks through keypair generation, public key sharing, bundle creation, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
+
+### Peer onboarding / bootstrap exchange (manual)
 
 Preferred encrypted flow:
 
@@ -306,6 +315,7 @@ skills/antenna/
 │   ├── antenna-relay.sh
 │   ├── antenna-relay-file.sh           # v1.1.8 — file-based relay input (preferred)
 │   ├── antenna-relay-exec.sh            # v1.1.6 — base64 wrapper (legacy fallback)
+│   ├── antenna-pair.sh                  # v1.1.9 — interactive peer pairing wizard
 │   ├── antenna-health.sh
 │   ├── antenna-peers.sh
 │   ├── antenna-doctor.sh

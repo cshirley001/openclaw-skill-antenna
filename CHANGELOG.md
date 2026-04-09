@@ -4,6 +4,20 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.1.9] — 2026-04-09
+
+### Added
+- **Interactive peer pairing wizard:** New `antenna pair` command walks users through the full
+  pairing flow — keypair generation, public key sharing, bundle creation, bundle import,
+  connectivity test, and first message — with Next/Skip/Quit at each step.
+- `scripts/antenna-pair.sh` — standalone wizard script.
+- `antenna pair [--peer-id <id>]` — CLI entry point.
+- Auto-offered at the end of `antenna setup` (interactive mode only).
+
+### Changed
+- `antenna setup` end-of-run output now shows a concise pairing summary with an offer to
+  launch the wizard, replacing the previous static step-by-step listing.
+
 ## [1.1.8] — 2026-04-09
 
 ### Changed

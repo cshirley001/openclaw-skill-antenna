@@ -929,19 +929,10 @@ fi
 echo ""
 echo -e "  ${BOLD}═══ Pairing with a Remote Peer ═══${NC}"
 echo ""
-echo "  4. Generate your age exchange keypair (if not already done):"
-echo "     antenna peers exchange keygen"
-echo "  5. Share your public key with the remote peer (safe to share openly):"
-echo "     antenna peers exchange pubkey --bare"
-echo "  6. Create an encrypted bootstrap bundle for the remote peer:"
-echo "     antenna peers exchange initiate <peer-id> --pubkey <their-age-pubkey>"
-echo "  7. Send the bundle file to the remote peer (email, scp, paste, etc.)"
-echo "  8. Import their reciprocal bundle when you receive it:"
-echo "     antenna peers exchange import <bundle-file>"
-echo "  9. Test connectivity:"
-echo "     antenna peers test <peer-id>"
-echo "  10. Send your first message:"
-echo "      antenna msg <peer-id> \"Hello from the other side!\""
+echo "  Ready to connect to a remote peer? The pairing wizard walks you"
+echo "  through keypair generation, bundle exchange, and first message."
+echo ""
+echo "  You can also run it later:  ${BOLD}antenna pair${NC}"
 echo ""
 echo "  Manual/legacy alternative (if age is unavailable):"
 echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
@@ -981,3 +972,11 @@ else
 fi
 ok "Setup complete! Your host ID is: ${BOLD}$HOST_ID${NC}"
 echo ""
+
+# Auto-offer pairing wizard (interactive mode only)
+if [[ -t 0 && "$INTERACTIVE" == "true" ]]; then
+  if prompt_yn "Would you like to pair with a remote peer now?"; then
+    echo ""
+    bash "$SCRIPT_DIR/antenna-pair.sh"
+  fi
+fi
