@@ -45,7 +45,7 @@ wizard_prompt() {
       s|skip)    return 1 ;;
       q|quit)
         echo ""
-        info "Wizard stopped. You can resume later with: ${BOLD}antenna pair${NC}"
+        info "No worries — pick up where you left off anytime:  ${BOLD}antenna pair${NC}"
         exit 0
         ;;
       *) return 0 ;;
@@ -56,7 +56,7 @@ wizard_prompt() {
     case "${choice,,}" in
       q|quit)
         echo ""
-        info "Wizard stopped. You can resume later with: ${BOLD}antenna pair${NC}"
+        info "No worries — pick up where you left off anytime:  ${BOLD}antenna pair${NC}"
         exit 0
         ;;
       *) return 0 ;;
@@ -100,19 +100,19 @@ TOTAL_STEPS=7
 
 # ══════════════════════════════════════════════════════════════════════════════
 
-header "Antenna Peer Pairing Wizard"
+header "🦞 Antenna Pairing Wizard"
 
-echo -e "  This wizard walks you through connecting to a remote Antenna peer."
-echo -e "  Each step can be skipped if you've already completed it."
-echo -e "  You can quit at any time and resume later with: ${BOLD}antenna pair${NC}"
+echo -e "  Let's connect you to another host on the reef."
+echo -e "  Each step has Next / Skip / Quit — go at your own pace."
+echo -e "  You can bail out anytime and pick up where you left off:  ${BOLD}antenna pair${NC}"
 
 # ── Step 1: Generate exchange keypair ────────────────────────────────────────
 
-if wizard_prompt 1 $TOTAL_STEPS "Generate exchange keypair"; then
+if wizard_prompt 1 $TOTAL_STEPS "Generate your exchange keypair"; then
   # Check if keypair already exists
   EXCHANGE_KEY_DIR="$SKILL_DIR/secrets"
   if [[ -f "$EXCHANGE_KEY_DIR/exchange-key.txt" ]]; then
-    warn "Exchange keypair already exists."
+    warn "You've already got a keypair — no need to generate a new one unless you want a fresh start."
     if ! prompt_value _regen "  Regenerate? (y/N)" "n"; then true; fi
     if [[ "${_regen,,}" == "y" || "${_regen,,}" == "yes" ]]; then
       bash "$ANTENNA" peers exchange keygen --force
@@ -126,42 +126,43 @@ fi
 
 # ── Step 2: Display your public key ─────────────────────────────────────────
 
-if wizard_prompt 2 $TOTAL_STEPS "Your public key" false; then
+if wizard_prompt 2 $TOTAL_STEPS "Share your public key" false; then
   echo ""
-  echo -e "  ${BOLD}Share this key with your peer${NC} (safe to share openly):"
+  echo -e "  Here's your public key — share it with your peer."
+  echo -e "  It's safe to post openly; it's a lock, not a key."
   echo ""
   PUBKEY=$("$ANTENNA" peers exchange pubkey --bare 2>/dev/null || echo "")
   if [[ -n "$PUBKEY" ]]; then
     echo -e "  ${GREEN}${PUBKEY}${NC}"
     echo ""
-    info "Your peer needs this key to create an encrypted bootstrap bundle for you."
+    info "Your peer needs this to encrypt a bootstrap bundle that only you can open."
   else
-    err "Could not retrieve public key. Run: antenna peers exchange keygen"
+    err "No public key found — run: antenna peers exchange keygen"
   fi
   echo ""
-  wait_for_enter "Press Enter once you've shared your key with your peer"
+  wait_for_enter "Press Enter once your peer has your key"
 fi
 
 # ── Step 3: Get peer info and create bundle ──────────────────────────────────
 
-if wizard_prompt 3 $TOTAL_STEPS "Create bootstrap bundle for your peer"; then
+if wizard_prompt 3 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
   echo ""
   # Get peer ID
   if [[ -z "$PEER_ID" ]]; then
-    prompt_value PEER_ID "Peer ID (a short name for the remote host, e.g. 'myserver')"
+    prompt_value PEER_ID "Peer ID (a short name for the remote host, e.g. 'myserver')" ""
   else
     echo -e "  ${CYAN}ℹ${NC}  Peer ID: ${BOLD}${PEER_ID}${NC}"
   fi
 
   if [[ -z "$PEER_ID" ]]; then
-    err "Peer ID is required."
+    err "Need a peer ID to continue — what do you call the other host?"
   else
     prompt_value PEER_PUBKEY "Their age public key (starts with age1...)"
     if [[ -z "$PEER_PUBKEY" ]]; then
-      err "Public key is required to create an encrypted bundle."
+      err "Can't build a bundle without their public key — ask your peer for it."
     else
       echo ""
-      info "Creating encrypted bootstrap bundle..."
+      info "Building your encrypted bootstrap bundle..."
       echo ""
       BUNDLE_OUTPUT=$(bash "$ANTENNA" peers exchange initiate "$PEER_ID" --pubkey "$PEER_PUBKEY" 2>&1) || true
       echo "$BUNDLE_OUTPUT"
@@ -175,36 +176,38 @@ if wizard_prompt 3 $TOTAL_STEPS "Create bootstrap bundle for your peer"; then
         echo -e "  ${BOLD}Send this file to your peer:${NC}"
         echo -e "  ${CYAN}${BUNDLE_FILE}${NC}"
         echo ""
-        echo -e "  ${DIM}Recommended methods: scp, email attachment, or secure file share.${NC}"
-        echo -e "  ${DIM}Avoid pasting the contents inline — email clients can corrupt the encoding.${NC}"
+        echo -e "  ${DIM}Email attachment, scp, carrier pigeon — whatever works.${NC}"
+        echo -e "  ${DIM}Just don't paste the contents inline; email clients love to mangle encoded text.${NC}"
       fi
     fi
   fi
   echo ""
-  wait_for_enter "Press Enter once you've sent the bundle to your peer"
+  wait_for_enter "Press Enter once you've sent it off"
 fi
 
 # ── Step 4: Wait for their bundle ───────────────────────────────────────────
 
-if wizard_prompt 4 $TOTAL_STEPS "Wait for their reply bundle"; then
+if wizard_prompt 4 $TOTAL_STEPS "Wait for their reply"; then
   echo ""
-  echo -e "  Your peer needs to:"
+  echo -e "  Ball's in their court. They need to:"
   echo -e "    1. Import your bundle:  ${DIM}antenna peers exchange import <your-bundle>${NC}"
   echo -e "    2. Create a reply:      ${DIM}antenna peers exchange reply ${PEER_ID:-<your-host-id>}${NC}"
-  echo -e "    3. Send you the reply bundle file"
+  echo -e "    3. Send you the reply file"
   echo ""
-  wait_for_enter "Press Enter once you've received their reply bundle"
+  echo -e "  This is a good time to grab coffee. ☕"
+  echo ""
+  wait_for_enter "Press Enter once you have their reply bundle"
 fi
 
 # ── Step 5: Import their bundle ─────────────────────────────────────────────
 
-if wizard_prompt 5 $TOTAL_STEPS "Import their reply bundle"; then
+if wizard_prompt 5 $TOTAL_STEPS "Import their bundle"; then
   echo ""
-  prompt_value IMPORT_FILE "Path to the bundle file you received"
+  prompt_value IMPORT_FILE "Path to the reply bundle you received" ""
   if [[ -z "$IMPORT_FILE" ]]; then
     err "No file path provided."
   elif [[ ! -f "$IMPORT_FILE" ]]; then
-    err "File not found: $IMPORT_FILE"
+    err "Can't find that file: $IMPORT_FILE — double-check the path?"
   else
     echo ""
     bash "$ANTENNA" peers exchange import "$IMPORT_FILE" || true
@@ -214,14 +217,14 @@ fi
 
 # ── Step 6: Test connectivity ────────────────────────────────────────────────
 
-if wizard_prompt 6 $TOTAL_STEPS "Test connectivity"; then
+if wizard_prompt 6 $TOTAL_STEPS "Test the connection"; then
   echo ""
   # Use PEER_ID if we have it, otherwise ask
   if [[ -z "$PEER_ID" ]]; then
     prompt_value PEER_ID "Peer ID to test"
   fi
   if [[ -n "$PEER_ID" ]]; then
-    info "Testing connection to ${BOLD}${PEER_ID}${NC}..."
+    info "Pinging ${BOLD}${PEER_ID}${NC} — let's see if anyone's home..."
     echo ""
     bash "$ANTENNA" peers test "$PEER_ID" || true
     echo ""
@@ -232,15 +235,15 @@ fi
 
 # ── Step 7: Send first message ──────────────────────────────────────────────
 
-if wizard_prompt 7 $TOTAL_STEPS "Send your first message!"; then
+if wizard_prompt 7 $TOTAL_STEPS "Send your first message! 🦞"; then
   echo ""
   if [[ -z "$PEER_ID" ]]; then
     prompt_value PEER_ID "Peer ID to message"
   fi
   if [[ -n "$PEER_ID" ]]; then
-    prompt_value FIRST_MSG "Message to send" "Hello from the other side! 👋"
+    prompt_value FIRST_MSG "Message to send" "Hello from the other side of the reef! 🦞"
     echo ""
-    info "Sending to ${BOLD}${PEER_ID}${NC}..."
+    info "Releasing the lobster to ${BOLD}${PEER_ID}${NC}... 🦞"
     echo ""
     bash "$ANTENNA" msg "$PEER_ID" "$FIRST_MSG" || true
     echo ""
@@ -251,9 +254,9 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
-header "Pairing Complete"
+header "🦞 You're Claw-nected!"
 
-echo -e "  You're connected! Here are some handy commands:"
+echo -e "  Welcome to the reef. Here's your cheat sheet:"
 echo ""
 echo -e "  ${BOLD}Send a message:${NC}     antenna msg ${PEER_ID:-<peer>} \"Your message\""
 echo -e "  ${BOLD}Target a session:${NC}   antenna msg ${PEER_ID:-<peer>} --session agent:main:test \"Hi\""
@@ -261,5 +264,5 @@ echo -e "  ${BOLD}Check status:${NC}       antenna peers test ${PEER_ID:-<peer>}
 echo -e "  ${BOLD}List peers:${NC}         antenna peers list"
 echo -e "  ${BOLD}Run diagnostics:${NC}    antenna doctor"
 echo ""
-ok "Happy messaging! 📡"
+ok "Happy messaging! The ocean just got smaller. 🦞 📡"
 echo ""

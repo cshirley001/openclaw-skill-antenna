@@ -146,15 +146,19 @@ fi
 
 if [[ "$INTERACTIVE" == "true" ]]; then
   echo ""
-  echo -e "${BOLD}📡 Antenna Setup — Inter-Host OpenClaw Messaging${NC}"
+  echo -e "${BOLD}🦞 📡 Antenna Setup — Let's Get You on the Reef${NC}"
   echo ""
-  echo "  This wizard will configure Antenna on this host."
+  echo "  This wizard configures Antenna on this host."
+  echo "  Two minutes from now, you'll be ready to send your first"
+  echo "  cross-host message. No PhD required. No shellfish expertise"
+  echo "  necessary (though it helps)."
+  echo ""
   echo "  You'll need:"
-  echo "    1. Your OpenClaw host ID (usually your hostname)"
+  echo "    1. A host ID (usually just your hostname)"
   echo "    2. Your reachable HTTPS hook URL"
   echo "    3. Your primary agent ID (e.g., 'betty')"
-  echo "    4. A relay model (e.g., 'openai/gpt-4o-mini')"
-  echo "    5. Whether to enable inbox mode (optional)"
+  echo "    4. A relay model (lightweight is best — the relay doesn't think, it dispatches)"
+  echo "    5. Whether to enable inbox mode (optional, more secure)"
   echo "    6. Path to your OpenClaw hooks bearer token file"
   echo ""
 fi
@@ -164,7 +168,7 @@ fi
 if [[ "$INTERACTIVE" == "true" ]]; then
   # Host ID
   local_hostname=$(hostname | tr '[:upper:]' '[:lower:]')
-  header "Step 1/7 — Host Identity"
+  header "Step 1/7 — Host Identity — Who Are You on the Reef?"
   prompt HOST_ID "Host ID (lowercase, no spaces — identifies you on the mesh)" "$local_hostname"
   HOST_ID=$(echo "$HOST_ID" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
 
@@ -172,7 +176,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   prompt DISPLAY_NAME "Display name (human-readable, shown in message headers)" "${HOST_ID^} ($(hostname))"
 
   # URL
-  header "Step 2/7 — Reachable Endpoint"
+  header "Step 2/7 — Reachable Endpoint — Where Do Peers Find You?"
   info "This is the URL other peers use to reach your /hooks/agent endpoint."
   info "Examples: https://myhost.tailXXXXX.ts.net  or  https://your-host.example.com"
   prompt HOST_URL "Your hook URL" ""
@@ -180,7 +184,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   HOST_URL="${HOST_URL%/}"
 
   # Agent ID — try to auto-detect from gateway config
-  header "Step 3/7 — Agent Identity"
+  header "Step 3/7 — Agent Identity — Who's Running the Show?"
   info "This is your primary assistant agent's ID in your gateway config."
   info "Used to resolve 'main' → 'agent:<id>:main'."
   DETECTED_AGENT=""
@@ -202,10 +206,11 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   fi
 
   # Relay model
-  header "Step 4/7 — Relay Model"
-  info "The model used by the Antenna relay agent for tool dispatch."
+  header "Step 4/7 — Relay Model — Choosing Your Dispatcher"
+  info "The model used by Antenna's relay agent for tool dispatch."
   info "Use a full provider/model ID (not an alias) for portability."
-  info "A lightweight/mechanical model works best — the relay agent should NOT interpret messages."
+  info "Pick something lightweight — the relay agent is a courier, not a philosopher."
+  info "It dispatches messages, not opinions."
 
   # Try to load default model and aliases from gateway config
   _alias_names=()
@@ -280,18 +285,18 @@ if [[ "$INTERACTIVE" == "true" ]]; then
 
   # Token file — try autodiscovery first
   # Inbox mode
-  header "Step 5/7 — Inbound Message Handling"
+  header "Step 5/7 — Inbound Message Handling — Instant or Inspected?"
   echo ""
-  echo "  Antenna can handle inbound messages in two ways:"
+  echo "  When a message arrives, how should Antenna handle it?"
   echo ""
   echo -e "    ${BOLD}Instant relay${NC} (default)"
-  echo "      Messages arrive in your session immediately."
+  echo "      Straight to your session, no delay. Like a walkie-talkie."
   echo "      Requires sandbox-off on the relay agent."
   echo ""
   echo -e "    ${BOLD}Inbox queue${NC} (more secure)"
-  echo "      Messages are held for your review before delivery."
-  echo "      You approve/deny via 'antenna inbox' commands."
-  echo "      Trusted peers can auto-approve (bypass the queue)."
+  echo "      Messages wait in a queue for your review first."
+  echo "      You approve or deny via 'antenna inbox' commands."
+  echo "      Trusted peers can skip the line."
   echo ""
 
   INBOX_ENABLED=false
@@ -307,7 +312,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     info "Inbox disabled — messages will relay instantly."
   fi
 
-  header "Step 6/7 — Hooks Bearer Token"
+  header "Step 6/7 — Hooks Bearer Token — The Key to the Door"
   info "Path to the file containing your OpenClaw hooks bearer token."
   info "This authenticates HTTP requests to /hooks/agent."
 
@@ -364,7 +369,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
     fi
   fi
 
-  header "Step 7/7 — Confirmation"
+  header "Step 7/7 — Confirmation — Look Good?"
 else
   # Non-interactive
   HOST_ID="$NI_HOST_ID"
@@ -579,7 +584,7 @@ fi
 echo ""
 # ── Back up gateway config before user edits it ─────────────────────────────
 
-header "═══ Gateway Config Backup ═══"
+header "═══ Backing Up Your Gateway Config (Just in Case) ═══"
 echo ""
 GATEWAY_CFG=""
 for candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
@@ -604,7 +609,7 @@ else
 fi
 echo ""
 
-header "═══ Gateway Registration ═══"
+header "═══ Registering Antenna with Your Gateway ═══"
 echo ""
 
 # ── Attempt automatic gateway registration ──────────────────────────────────
@@ -797,7 +802,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
 
       # 7) Validate
       if jq empty "$GATEWAY_CFG" 2>/dev/null; then
-        ok "Gateway config is valid JSON after changes"
+        ok "Gateway config is valid JSON — nothing broken, nothing weird."
         AUTO_REGISTERED=true
       else
         err "Gateway config is not valid JSON after changes!"
@@ -809,7 +814,7 @@ fi
 
 # ── PATH symlink ─────────────────────────────────────────────────────────────
 # Ensure `antenna` CLI is on PATH so agents (and humans) can just type "antenna".
-header "═══ CLI PATH Setup ═══"
+header "═══ Putting Antenna on Your PATH ═══"
 
 ANTENNA_BIN="$SKILL_DIR/bin/antenna"
 SYMLINK_TARGET=""
@@ -913,12 +918,13 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
 fi
 echo ""
 
-header "═══ Next Steps ═══"
+header "═══ Almost There! ═══"
 echo ""
 if [[ "$AUTO_REGISTERED" == "true" ]]; then
-  echo "  1. Restart the gateway to activate changes:"
+  echo "  1. Restart the gateway to bring Antenna online:"
   echo "     openclaw gateway restart"
-  echo -e "  2. ${BOLD}Verify the registration:${NC}"
+  echo ""
+  echo -e "  2. Run the doctor to make sure everything checks out:"
   echo "     antenna doctor"
 else
   echo "  1. Register the agent in your gateway config (see above)"
@@ -927,12 +933,13 @@ else
   echo "  3. Restart the gateway: openclaw gateway restart"
 fi
 echo ""
-echo -e "  ${BOLD}═══ Pairing with a Remote Peer ═══${NC}"
+echo -e "  ${BOLD}═══ Ready to Connect? ═══${NC}"
 echo ""
-echo "  Ready to connect to a remote peer? The pairing wizard walks you"
-echo "  through keypair generation, bundle exchange, and first message."
+echo "  The fun part! The pairing wizard walks you through connecting"
+echo "  to another host — keypair exchange, encrypted bundles, and your"
+echo "  first message."
 echo ""
-echo "  You can also run it later:  ${BOLD}antenna pair${NC}"
+echo "  Run it now or save it for later:  ${BOLD}antenna pair${NC}"
 echo ""
 echo "  Manual/legacy alternative (if age is unavailable):"
 echo "     antenna peers add <peer-id> --url <url> --token-file <path>"
@@ -970,12 +977,12 @@ else
   echo "    To enable later: antenna config set inbox_enabled true"
   echo ""
 fi
-ok "Setup complete! Your host ID is: ${BOLD}$HOST_ID${NC}"
+ok "Setup complete! Welcome to the reef, ${BOLD}$HOST_ID${NC}. 🦞"
 echo ""
 
 # Auto-offer pairing wizard (interactive mode only)
 if [[ -t 0 && "$INTERACTIVE" == "true" ]]; then
-  if prompt_yn "Would you like to pair with a remote peer now?"; then
+  if prompt_yn "Ready to pair with your first peer? (The wizard handles everything.)"; then
     echo ""
     bash "$SCRIPT_DIR/antenna-pair.sh"
   fi

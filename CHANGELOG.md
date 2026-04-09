@@ -4,6 +4,23 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-04-09
+
+### Changed
+- **Playful voice pass** for `antenna setup` and `antenna pair` — user-facing copy
+  rewritten with warm, confident tone inspired by the Antenna-for-OpenClaw doc.
+- Setup banner: "Let's Get You on the Reef" with two-minute promise and shellfish joke.
+- Step headers gain warm subtitles (e.g. "Who Are You on the Reef?", "Choosing Your Dispatcher").
+- Relay model hint: "a courier, not a philosopher."
+- Inbox description: "Like a walkie-talkie" / "Trusted peers can skip the line."
+- Completion: "Welcome to the reef, <host>. 🦞"
+- Pair wizard intro: "Let's connect you to another host on the reef."
+- Pair completion: "🦞 You're Claw-nected!" / "The ocean just got smaller."
+- First message send: "Releasing the lobster to <peer>... 🦞"
+- Error messages gain human warmth while staying clear.
+- Quit message: "No worries — pick up where you left off anytime."
+- Total pun count across both scripts: 2. Emoji 🦞 count: 6.
+
 ## [1.1.9] — 2026-04-09
 
 ### Added
