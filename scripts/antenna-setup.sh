@@ -87,7 +87,7 @@ Non-interactive:
   antenna setup --host-id myhost \
     --display-name "My Host (Server)" \
     --url "https://myhost.tailXXXXX.ts.net" \
-    --agent-id betty \
+    --agent-id lobster \
     --model "openai/gpt-4o-mini" \
     --token-file /path/to/hooks_token \
     [--force]
@@ -156,7 +156,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "  You'll need:"
   echo "    1. A host ID (usually just your hostname)"
   echo "    2. Your reachable HTTPS hook URL"
-  echo "    3. Your primary agent ID (e.g., 'betty')"
+  echo "    3. Your primary agent ID (e.g., 'lobster')"
   echo "    4. A relay model (lightweight is best — the relay doesn't think, it dispatches)"
   echo "    5. Whether to enable inbox mode (optional, more secure)"
   echo "    6. Your OpenClaw hooks bearer token (setup can auto-detect or generate one)"
@@ -680,7 +680,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         tmp_gw=$(mktemp)
         jq --arg ws "$_def_workspace" --arg model "$_def_model" '
           .agents.list = [{
-            id: "betty",
+            id: "lobster",
             name: "Main Agent",
             model: $model,
             agentDir: $ws
@@ -977,6 +977,21 @@ else
   echo "    To enable later: antenna config set inbox_enabled true"
   echo ""
 fi
+echo -e "  ${BOLD}═══ 🪸 ClawReef — Peer Discovery ═══${NC}"
+echo ""
+echo -e "  ${CYAN}clawreef.io${NC} is the community registry for Antenna hosts."
+echo "  Register your host, find peers, and send connection invites —"
+echo "  ClawReef delivers them via Antenna to the recipient's session."
+echo ""
+echo "  Get started:"
+echo "    1. Create an account at https://clawreef.io"
+echo "    2. Register this host (peer name, endpoint, exchange key)"
+echo "    3. Complete bootstrap pairing with ClawReef"
+echo "    4. Browse the reef and send invites!"
+echo ""
+echo -e "  ClawReef is optional — direct pairing via ${BOLD}antenna pair${NC} always works."
+echo -e "  ClawReef stores public info only; trust stays local to Antenna."
+echo ""
 ok "Setup complete! Welcome to the reef, ${BOLD}$HOST_ID${NC}. 🦞"
 echo ""
 

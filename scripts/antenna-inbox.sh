@@ -292,12 +292,12 @@ cmd_drain() {
   fi
   
   # Output delivery instructions as JSON (one per line).
-  # The calling agent (Betty, cron job, etc.) should read these and call
+  # The calling agent (your assistant, cron job, etc.) should read these and call
   # sessions_send for each "deliver" action. This avoids re-entering the
   # relay agent via /hooks/agent which could re-queue the message.
   #
   # Each line is a self-contained delivery instruction:
-  #   {"action":"deliver","ref":1,"sessionKey":"agent:betty:main","message":"...","from":"bettyxx"}
+  #   {"action":"deliver","ref":1,"sessionKey":"agent:lobster:main","message":"...","from":"lobstery"}
   #   {"action":"remove","ref":2,"from":"unknown_peer"}
   
   if [[ "$approved_count" -gt 0 ]]; then

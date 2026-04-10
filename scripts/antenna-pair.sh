@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -105,6 +105,10 @@ header "🦞 Antenna Pairing Wizard"
 echo -e "  Let's connect you to another host on the reef."
 echo -e "  Each step has Next / Skip / Quit — go at your own pace."
 echo -e "  You can bail out anytime and pick up where you left off:  ${BOLD}antenna pair${NC}"
+echo ""
+echo -e "  ${DIM}Two paths to connect:${NC}"
+echo -e "    ${CYAN}•${NC} Direct exchange — share keys, build encrypted bundles (steps below)"
+echo -e "    ${CYAN}•${NC} ClawReef invite — find a peer at ${BOLD}clawreef.io${NC} and send an invite"
 
 # ── Step 1: Generate exchange keypair ────────────────────────────────────────
 
@@ -143,9 +147,42 @@ if wizard_prompt 2 $TOTAL_STEPS "Share your public key" false; then
   wait_for_enter "Press Enter once your peer has your key"
 fi
 
-# ── Step 3: Get peer info and create bundle ──────────────────────────────────
+# ── Step 3: ClawReef invite (alternative path) ───────────────────────────────
 
-if wizard_prompt 3 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
+if wizard_prompt 3 $TOTAL_STEPS "Send a ClawReef invite instead? 🪸"; then
+  echo ""
+  echo -e "  If your peer is on ${BOLD}clawreef.io${NC}, you can send them an invite"
+  echo -e "  through the registry instead of exchanging bundles manually."
+  echo ""
+  echo -e "  ${BOLD}How it works:${NC}"
+  echo -e "    1. Log in at ${CYAN}https://clawreef.io${NC}"
+  echo -e "    2. Go to ${BOLD}Invites${NC} → search for your peer by name"
+  echo -e "    3. Send the invite — ClawReef delivers it via Antenna"
+  echo -e "    4. When they accept, you both finish pairing locally"
+  echo ""
+  echo -e "  ${DIM}If they're not on ClawReef (or you prefer direct exchange),${NC}"
+  echo -e "  ${DIM}just press Next to continue with the encrypted bundle steps.${NC}"
+  echo ""
+  if [[ -t 0 ]]; then
+    prompt_value _cr_choice "Open clawreef.io/registry/dashboard/invites in your browser? (y/N)" "n"
+    if [[ "${_cr_choice,,}" == "y" || "${_cr_choice,,}" == "yes" ]]; then
+      # Try to open browser (works on most platforms)
+      if command -v xdg-open &>/dev/null; then
+        xdg-open "https://clawreef.io/registry/dashboard/invites" 2>/dev/null &
+      elif command -v open &>/dev/null; then
+        open "https://clawreef.io/registry/dashboard/invites" 2>/dev/null &
+      else
+        echo -e "  ${CYAN}→${NC} https://clawreef.io/registry/dashboard/invites"
+      fi
+      echo ""
+      wait_for_enter "Press Enter once you've sent your invite (or to continue with direct exchange)"
+    fi
+  fi
+fi
+
+# ── Step 4: Get peer info and create bundle ──────────────────────────────────
+
+if wizard_prompt 4 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
   echo ""
   # Get peer ID
   if [[ -z "$PEER_ID" ]]; then
@@ -185,9 +222,9 @@ if wizard_prompt 3 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
   wait_for_enter "Press Enter once you've sent it off"
 fi
 
-# ── Step 4: Wait for their bundle ───────────────────────────────────────────
+# ── Step 5: Wait for their bundle ───────────────────────────────────────────
 
-if wizard_prompt 4 $TOTAL_STEPS "Wait for their reply"; then
+if wizard_prompt 5 $TOTAL_STEPS "Wait for their reply"; then
   echo ""
   echo -e "  Ball's in their court. They need to:"
   echo -e "    1. Import your bundle:  ${DIM}antenna peers exchange import <your-bundle>${NC}"
@@ -199,9 +236,9 @@ if wizard_prompt 4 $TOTAL_STEPS "Wait for their reply"; then
   wait_for_enter "Press Enter once you have their reply bundle"
 fi
 
-# ── Step 5: Import their bundle ─────────────────────────────────────────────
+# ── Step 6: Import their bundle ─────────────────────────────────────────────
 
-if wizard_prompt 5 $TOTAL_STEPS "Import their bundle"; then
+if wizard_prompt 6 $TOTAL_STEPS "Import their bundle"; then
   echo ""
   prompt_value IMPORT_FILE "Path to the reply bundle you received" ""
   # Expand leading ~ to $HOME (read doesn't do shell expansion)
@@ -217,9 +254,9 @@ if wizard_prompt 5 $TOTAL_STEPS "Import their bundle"; then
   fi
 fi
 
-# ── Step 6: Test connectivity ────────────────────────────────────────────────
+# ── Step 7: Test connectivity ────────────────────────────────────────────────
 
-if wizard_prompt 6 $TOTAL_STEPS "Test the connection"; then
+if wizard_prompt 7 $TOTAL_STEPS "Test the connection"; then
   echo ""
   # Use PEER_ID if we have it, otherwise ask
   if [[ -z "$PEER_ID" ]]; then
@@ -235,9 +272,9 @@ if wizard_prompt 6 $TOTAL_STEPS "Test the connection"; then
   fi
 fi
 
-# ── Step 7: Send first message ──────────────────────────────────────────────
+# ── Step 8: Send first message ──────────────────────────────────────────────
 
-if wizard_prompt 7 $TOTAL_STEPS "Send your first message! 🦞"; then
+if wizard_prompt 8 $TOTAL_STEPS "Send your first message! 🦞"; then
   echo ""
   if [[ -z "$PEER_ID" ]]; then
     prompt_value PEER_ID "Peer ID to message"

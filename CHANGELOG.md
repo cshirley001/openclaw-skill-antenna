@@ -2,6 +2,20 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.3] — 2026-04-10
+
+### Added
+- **ClawReef integration** — ClawReef peer registry references throughout docs (README, SKILL.md, User Guide)
+- **Setup**: ClawReef info block displayed after setup completion with registration guidance
+- **Pair wizard**: New Step 3 "Send a ClawReef invite" offers registry-based discovery as alternative to manual encrypted exchange; opens browser to invites page if desired
+- User Guide: Full "ClawReef — The Reef Directory" section explaining purpose, trust model, and how it fits into pairing
+- README: ClawReef section with overview, trust model, and usage
+- SKILL.md: ClawReef peer discovery section
+
+### Changed
+- Pair wizard expanded from 7 to 8 steps (ClawReef invite inserted as Step 3; existing steps renumbered)
+- Roadmap entries updated to reflect ClawReef is now live
+
 ## [Unreleased]
 
 ## [1.2.0] — 2026-04-09
@@ -98,7 +112,7 @@ All notable changes to the Antenna skill are documented here.
 
 ### Fixed
 - **Setup Step 5 display:** `echo` → `echo -e` for ANSI bold/color codes in the inbox mode description
-- **Agent ID auto-detection:** Setup now reads gateway config to pre-fill the primary agent ID, reducing the chance of entering the wrong value and getting misrouted sessions (e.g., `agent:betty:main` vs `agent:main:main`)
+- **Agent ID auto-detection:** Setup now reads gateway config to pre-fill the primary agent ID, reducing the chance of entering the wrong value and getting misrouted sessions (e.g., `agent:lobster:main` vs `agent:main:main`)
 - **Cross-agent session visibility:** Setup now auto-configures `tools.sessions.visibility=all` and `tools.agentToAgent.enabled=true` in the gateway config, fixing "Session send visibility is restricted" errors on fresh installs
 - **Manual fallback instructions** updated with the new visibility/agent-to-agent settings (Step 4) and renumbered
 
@@ -259,7 +273,7 @@ Layer A encrypted bootstrap exchange implemented and docs synced to the current 
 ## [1.0.8] — 2026-03-30
 
 ### Summary
-Onboarding UX fixes from first real "meat test" (human walkthrough on clean-slate BETTYXX).
+Onboarding UX fixes from first real "meat test" (human walkthrough on clean-slate host).
 
 ### Fixed
 - **`antenna setup`** now seeds the host's own ID into `allowed_inbound_peers` and `allowed_outbound_peers` — prevents self-loopback smoke tests from failing with "not in allowed_outbound_peers" immediately after setup.
@@ -270,8 +284,8 @@ Onboarding UX fixes from first real "meat test" (human walkthrough on clean-slat
 - `scripts/antenna-exchange.sh` — reordered guided wizard Step 2 options; added "operator can pull" suggestion.
 
 ### Tested
-- Clean-slate BETTYXX onboarding: `antenna setup` → `peers add` → `peers exchange` → `antenna msg` — full round-trip confirmed.
-- Tier A: 11/11 on both BETTYXIX and BETTYXX after changes.
+- Clean-slate onboarding: `antenna setup` → `peers add` → `peers exchange` → `antenna msg` — full round-trip confirmed.
+- Tier A: 11/11 on both hosts after changes.
 
 ## [1.0.7] — 2026-03-30
 
@@ -406,11 +420,11 @@ Portability cleanup. Removed hardcoded host/user/model assumptions from shareabl
 - `relay_agent_model` reverted from `"mini"` alias to full `"openai/gpt-5.4"` provider/model ID
 - `agent/AGENTS.md` — replaced hardcoded `/home/corey/clawd/...` paths with relative/config-driven resolution
 - `agent/TOOLS.md` — same path portability fix
-- `SKILL.md` — generic `<placeholder>` examples instead of Betty/Corey-specific names and URLs
+- `SKILL.md` — generic `<placeholder>` examples instead of installation-specific names and URLs
 - `README.md` — same generic examples treatment
 - `references/ANTENNA-RELAY-FSD.md` — removed host-specific peer IDs, session keys, and display names from examples
 - `bin/antenna` — generic usage examples; status fallback model shows `"unset"` instead of `"mini"`
-- `scripts/antenna-relay.sh` — fallback `local_agent_id` changed from `"betty"` to `"agent"`
+- `scripts/antenna-relay.sh` — fallback `local_agent_id` changed from example agent to `"agent"`
 
 ### Added
 - `install_path` field in `antenna-config.json` — allows agent/scripts to resolve paths on any host

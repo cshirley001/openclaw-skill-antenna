@@ -30,7 +30,7 @@ Does NOT remove:
 
 ```bash
 rm -f ~/clawd/skills/antenna/antenna-bootstrap-*.age.txt
-rm -f ~/clawd/skills/antenna/bettyxix-reply-bundle.age.txt  # or any manually named bundles
+rm -f ~/clawd/skills/antenna/lobsterx-reply-bundle.age.txt  # or any manually named bundles
 ```
 
 ## 3. Remove gateway backup files

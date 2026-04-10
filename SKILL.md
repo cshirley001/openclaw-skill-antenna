@@ -12,10 +12,10 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.0
+  version: 1.2.3
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.2.0)
+# Antenna — Inter-Host OpenClaw Messaging (v1.2.3)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -160,7 +160,7 @@ antenna pair                          # Full interactive wizard
 antenna pair --peer-id myserver       # Pre-fill peer ID
 ```
 
-The wizard walks through keypair generation, public key sharing, bundle creation, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
+The wizard walks through keypair generation, public key sharing, optional ClawReef invite, bundle creation, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
 
 ### Peer onboarding / bootstrap exchange (manual)
 
@@ -270,6 +270,18 @@ summarize the queue and ask me.
 ```
 
 **Conversational usage:** Ask your assistant "any Antenna messages waiting?" — it can run `antenna inbox list`, you review, then say "approve 1 and 3, deny 2" and it handles the rest.
+
+## ClawReef — Peer Discovery
+
+[clawreef.io](https://clawreef.io) is the optional community registry for Antenna hosts:
+
+- **Discover peers** — browse and search the directory
+- **Send invites** — ClawReef delivers them via Antenna to the recipient's default session
+- **Accept & pair** — accepting an invite starts the normal `antenna pair` flow locally
+
+ClawReef stores public keys and endpoints, never bilateral secrets. All trust decisions remain local to Antenna.
+
+The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to manual encrypted exchange. Setup also displays ClawReef info after completion.
 
 ## Security Notes
 

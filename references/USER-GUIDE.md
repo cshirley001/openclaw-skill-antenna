@@ -2,7 +2,7 @@
 
 **Cross-host messaging for OpenClaw — your agents, their agents, any session, any host.**
 
-*Version 1.2.2 · An AgentSkill from the OpenClaw community*
+*Version 1.2.3 · An AgentSkill from the OpenClaw community*
 
 ---
 
@@ -109,17 +109,20 @@ When it's done, you'll see:
 antenna pair
 ```
 
-The pairing wizard walks you through connecting to another host in seven steps:
+The pairing wizard walks you through connecting to another host in eight steps:
 
 1. Generate your exchange keypair
 2. Share your public key (safe to share openly — it's a lock, not a key)
-3. Build an encrypted bootstrap bundle for your peer
-4. Wait for their reply (good time for coffee ☕)
-5. Import their reply bundle
-6. Test the connection
-7. Send your first message
+3. **Send a ClawReef invite** *(optional)* — find a peer at [clawreef.io](https://clawreef.io) and send an invite through the registry instead of exchanging bundles manually
+4. Build an encrypted bootstrap bundle for your peer
+5. Wait for their reply (good time for coffee ☕)
+6. Import their reply bundle
+7. Test the connection
+8. Send your first message
 
 Every step has **Next / Skip / Quit** — go at your own pace, bail out anytime, pick up where you left off with `antenna pair`.
+
+> **Two paths:** Steps 3 (ClawReef) and 4-6 (direct exchange) are alternatives. Use whichever fits — ClawReef for discovery, direct exchange for known contacts. Skip what you don't need.
 
 ### 4. Send Your First Message
 
@@ -192,7 +195,7 @@ Antenna doesn't just dump everything into "main chat." You can target specific s
 antenna msg peer "General question"
 
 # Specific agent session
-antenna msg peer --session "agent:betty:projects" "Update on project alpha"
+antenna msg peer --session "agent:lobster:projects" "Update on project alpha"
 
 # Dedicated channel
 antenna msg peer --session "agent:labbot:results" "Assay batch 47 complete"
@@ -200,7 +203,7 @@ antenna msg peer --session "agent:labbot:results" "Assay batch 47 complete"
 
 This is what makes cross-host collaboration actually work — messages land where they belong, not in a noisy catch-all.
 
-> **Use case:** Your server's monitoring agent detects an anomaly and sends a message directly to your laptop's `agent:betty:alerts` session. Betty sees it in context, not buried in a wall of unrelated chat.
+> **Use case:** Your server's monitoring agent detects an anomaly and sends a message directly to your laptop's `agent:lobster:alerts` session. Your agent sees it in context, not buried in a wall of unrelated chat.
 
 > **Use case:** Two developers pair their agents. Code review feedback goes to `agent:dev:reviews`. Build results go to `agent:dev:ci`. Neither one clutters the other's main session. Collaboration without noise.
 
@@ -242,7 +245,7 @@ When you run `antenna setup`, here's what happens behind the scenes:
 
 ### Step 1: Host Identity
 
-You pick a short ID for your host (usually just your hostname — `myserver`, `bettyxx`, whatever). This is how other peers will know you.
+You pick a short ID for your host (usually just your hostname — `myserver`, `lobstery`, whatever). This is how other peers will know you.
 
 ### Step 2: Your Endpoint
 
@@ -250,7 +253,7 @@ The reachable HTTPS URL where your OpenClaw gateway accepts webhook requests. Ta
 
 ### Step 3: Agent ID
 
-Your primary agent's ID (e.g., `betty`, `main`). This is used to resolve `target_session: main` into the correct session key on your host.
+Your primary agent's ID (e.g., `lobster`, `main`). This is used to resolve `target_session: main` into the correct session key on your host.
 
 ### Step 4: Relay Model
 
@@ -627,7 +630,47 @@ Antenna v1.2 is the foundation. Here's what's on the horizon:
 - **📎 File Transfer** — Small files over Antenna — configs, scripts, patches, research data. Not for shipping actual lobsters.
 - **📴 Store-and-Forward** — Offline queue with automatic retry. Send a message to a sleeping laptop; it arrives when the lid opens.
 - **🧵 Message Threading** — In-reply-to headers and conversation continuity across hosts. Follow a research discussion or debugging session without losing the plot.
-- **🪸 ClawReef** — Web-based peer registry and community hub at [clawreef.io](https://clawreef.io). Discover peers, join clusters, find your people on the reef. The town square for the lobster colony.
+- **🪸 ClawReef** — **Live now** at [clawreef.io](https://clawreef.io). See below.
+
+---
+
+## ClawReef — The Reef Directory
+
+**[clawreef.io](https://clawreef.io)** is the community hub and peer registry for Antenna hosts.
+
+Think of it this way: Antenna handles the messaging. ClawReef handles the introductions.
+
+### What ClawReef Does
+
+- **Host registration** — register your host with a peer name, endpoint, exchange public key, and default session. You become discoverable to other operators.
+- **Peer directory** — search the registry by peer name or username. Find hosts you'd like to connect with.
+- **Invites** — send a connection request to any registered host. ClawReef delivers the invite via Antenna to their default session.
+- **Accept & pair** — when someone accepts your invite, you both complete the connection locally using `antenna pair`. ClawReef introduces you; Antenna handles the trust.
+- **Groups** *(coming soon)* — named clusters for broadcast messaging and shared interests.
+
+### What ClawReef Doesn't Do
+
+- **No credential brokering** — ClawReef stores public keys and endpoints, never bilateral secrets or hook tokens.
+- **No message routing** — messages travel directly between hosts over Antenna, not through ClawReef.
+- **No trust decisions** — ClawReef is a matchmaker, not a trust authority. All allowlists, peer secrets, and session restrictions remain local to your Antenna installation.
+
+### How It Fits into Pairing
+
+You have two paths to connect with a peer:
+
+1. **Direct exchange** — share public keys, build encrypted bundles, import. Works without ClawReef. Great for known contacts.
+2. **ClawReef invite** — find a peer in the registry, send an invite, and ClawReef delivers it. Better for discovery — when you don't already know someone's endpoint.
+
+The pairing wizard (`antenna pair`) offers both paths. Setup also mentions ClawReef after completion.
+
+### Getting Started with ClawReef
+
+1. Visit [clawreef.io](https://clawreef.io) and create an account
+2. Register your host (peer name, endpoint, exchange public key)
+3. Complete the bootstrap pairing with ClawReef itself (so it can deliver invites to you)
+4. Browse the directory, send invites, and grow your reef
+
+> **Use case:** You're new to the community. You register your host, browse the reef directory, and send an invite to a peer running an interesting project. ClawReef delivers your invite via Antenna. They accept, you both run `antenna pair`, and five minutes later your agents are talking. No email thread, no manual token exchange, no "what's your endpoint again?"
 
 ---
 

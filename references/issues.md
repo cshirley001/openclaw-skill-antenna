@@ -1,7 +1,7 @@
 
 ## Issue #8: Setup should offer to generate a hooks token when autodiscovery fails
 
-**Found:** 2026-04-03 (meat test, BETTYXX fresh install after uninstall)
+**Found:** 2026-04-03 (meat test, LOBSTERY fresh install after uninstall)
 **Severity:** UX / onboarding friction
 **Status:** Open
 
@@ -31,19 +31,19 @@ Then enter the path at the prompt.
 
 ## Issue #9: Setup doesn't add relay_agent_id to hooks.allowedAgentIds
 
-**Found:** 2026-04-03 (meat test, BETTYXX fresh install)
+**Found:** 2026-04-03 (meat test, LOBSTERY fresh install)
 **Severity:** Bug — blocks inbound message delivery
 **Status:** Open
 
 ### Problem
-`antenna setup` gateway registration (line ~410-413 of `antenna-setup.sh`) adds the **local agent ID** (`betty`) and `main` to `hooks.allowedAgentIds`, but does not add the **relay agent ID** (`antenna`).
+`antenna setup` gateway registration (line ~410-413 of `antenna-setup.sh`) adds the **local agent ID** (`lobster`) and `main` to `hooks.allowedAgentIds`, but does not add the **relay agent ID** (`antenna`).
 
 Since inbound Antenna messages are POSTed to `/hooks/agent` with the relay agent ID as the target, the gateway rejects them — effectively breaking all inbound messaging.
 
 ### Evidence
-After fresh setup on BETTYXX:
+After fresh setup on LOBSTERY:
 ```json
-"allowedAgentIds": ["betty", "main"]  // missing "antenna"
+"allowedAgentIds": ["lobster", "main"]  // missing "antenna"
 ```
 `antenna doctor` correctly flags: `✗ hooks.allowedAgentIds does not include "antenna"`
 
@@ -61,7 +61,7 @@ openclaw gateway restart
 
 ## Issue #10: Onboarding step order puts manual `peers add` before `peers exchange`
 
-**Found:** 2026-04-03 (meat test, BETTYXX fresh install)
+**Found:** 2026-04-03 (meat test, LOBSTERY fresh install)
 **Severity:** UX / documentation — confuses the primary onboarding path
 **Status:** Open
 
@@ -95,7 +95,7 @@ The primary happy path should be:
 
 ## Issue #11: Exchange import may write token to stale/pre-existing path instead of peer-specific file
 
-**Found:** 2026-04-03 (meat test, BETTYXIX importing BETTYXX's reply bundle)
+**Found:** 2026-04-03 (meat test, LOBSTERX importing LOBSTERY's reply bundle)
 **Severity:** Bug — causes AUTH FAILED on outbound messages
 **Status:** Open
 
@@ -123,7 +123,7 @@ chmod 600 secrets/hooks_token_<peer-id>
 
 ## Issue #12: Self peer token_file uses arbitrary absolute path instead of canonical relative path
 
-**Found:** 2026-04-03 (round 2 meat test — BETTYXIX stale self token caused wrong token in exchange bundle)
+**Found:** 2026-04-03 (round 2 meat test — LOBSTERX stale self token caused wrong token in exchange bundle)
 **Severity:** Bug — exchange bundles package wrong hooks token, causing AUTH FAILED on import
 **Status:** Fixed in v1.0.13
 
@@ -154,7 +154,7 @@ Non-interactive mode now handles `--token-file auto` and missing token files by:
 
 ## Issue #13: Email transport garbles base64 bundle → decrypt fails on import
 
-**Found:** 2026-04-03 (meat test round 4 — email reply from BETTYXIX to Corey, copy-pasted into file)
+**Found:** 2026-04-03 (meat test round 4 — email reply from LOBSTERX to Corey, copy-pasted into file)
 **Severity:** UX — email inline body corrupts bundle during copy-paste
 **Status:** Fixed in v1.0.14
 
@@ -180,7 +180,7 @@ whenever the gateway config file is found, without prompting.
 
 ## Issue #16: age not listed as dependency in README
 
-**Found:** 2026-04-03 (meat test — age missing on BETTYXX)
+**Found:** 2026-04-03 (meat test — age missing on LOBSTERY)
 **Severity:** Documentation
 **Status:** Fixed in v1.0.14
 

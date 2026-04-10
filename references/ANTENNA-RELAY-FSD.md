@@ -2,7 +2,7 @@
 
 **Version:** 1.0.10  
 **Date:** 2026-04-01  
-**Author:** Betty XIX Openclaw  
+**Author:** Antenna Contributors  
 **Status:** v1.0.10 — stable relay baseline plus Layer A encrypted bootstrap exchange
 
 **Companion docs:**
@@ -917,8 +917,8 @@ Named groups of peers in config for broadcast targeting, access control, and org
 ```json
 {
   "groups": {
-    "lab-hosts": ["bettyxix", "bettyxx", "labpi"],
-    "office": ["bettyxix", "bettyxx"]
+    "lab-hosts": ["lobsterx", "lobstery", "labpi"],
+    "office": ["lobsterx", "lobstery"]
   }
 }
 ```
@@ -945,7 +945,7 @@ Automatically discover other Antenna-enabled OpenClaw instances on the same Tail
 
 **Status:** Proposed
 
-**Problem:** If a peer is offline (e.g., BETTYXX laptop is closed), the send fails immediately. The sender has to know the peer's availability before messaging, which defeats the "fire-and-forget" promise.
+**Problem:** If a peer is offline (e.g., LOBSTERY laptop is closed), the send fails immediately. The sender has to know the peer's availability before messaging, which defeats the "fire-and-forget" promise.
 
 **Proposed behavior:**
 - On send failure (connection refused, timeout, HTTP 5xx), message is written to a local outbox file (`antenna-outbox.json`).
@@ -1055,11 +1055,11 @@ antenna msg <peer> "Updated the docs" --priority low
 
 **Status:** Proposed
 
-**Problem:** `antenna log` shows transaction metadata (timestamp, direction, peer, session, status, char count), but doesn't store or index message content. "What did Betty XX tell me about X last week?" requires searching session history, not antenna logs.
+**Problem:** `antenna log` shows transaction metadata (timestamp, direction, peer, session, status, char count), but doesn't store or index message content. "What did LobsterY tell me about X last week?" requires searching session history, not antenna logs.
 
 **Proposed behavior:**
 ```bash
-antenna search "config change" [--from bettyxx] [--since 7d] [--limit 10]
+antenna search "config change" [--from lobstery] [--since 7d] [--limit 10]
 ```
 - Option A: Enrich `antenna.log` to include message body (or a truncated preview) in a searchable format. Simple but grows the log.
 - Option B: Separate message store (`antenna-messages.jsonl`) with full content, indexed alongside metadata. Log stays lean.
@@ -1093,7 +1093,7 @@ antenna help "Does anyone know how to configure Ollama on WSL2?" --cluster commu
   "helping_claw": {
     "enabled": true,
     "accept_from": ["all"],
-    "accept_from": ["bettyxix", "bettyxx"],
+    "accept_from": ["lobsterx", "lobstery"],
     "accept_from": ["cluster:community"]
   }
 }

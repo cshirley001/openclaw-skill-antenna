@@ -231,9 +231,9 @@ After import:
 {
   "schema_version": 1,
   "generated_at": "2026-04-01T22:00:00Z",
-  "from_peer_id": "bettyxix",
-  "from_display_name": "Betty XIX",
-  "from_endpoint_url": "https://bettyxix.tailde275c.ts.net",
+  "from_peer_id": "lobsterx",
+  "from_display_name": "LobsterX",
+  "from_endpoint_url": "https://lobsterx.tailde275c.ts.net",
   "from_agent_id": "antenna",
   "from_hooks_token": "<token>",
   "from_identity_secret": "<hex-secret>",

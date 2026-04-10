@@ -24,7 +24,7 @@ Review doc for Corey. This shows the **proposed** text changes for `antenna-setu
   You'll need:
     1. Your OpenClaw host ID (usually your hostname)
     2. Your reachable HTTPS hook URL
-    3. Your primary agent ID (e.g., 'betty')
+    3. Your primary agent ID (e.g., 'lobster')
     4. A relay model (e.g., 'openai/gpt-4o-mini')
     5. Whether to enable inbox mode (optional)
     6. Path to your OpenClaw hooks bearer token file
@@ -42,7 +42,7 @@ Review doc for Corey. This shows the **proposed** text changes for `antenna-setu
   You'll need:
     1. A host ID (usually just your hostname)
     2. Your reachable HTTPS hook URL
-    3. Your primary agent ID (e.g., 'betty')
+    3. Your primary agent ID (e.g., 'lobster')
     4. A relay model (lightweight is best — the relay doesn't think, it dispatches)
     5. Whether to enable inbox mode (optional, more secure)
     6. Path to your OpenClaw hooks bearer token file

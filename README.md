@@ -52,6 +52,8 @@ antenna pair
 
 Seven interactive steps: generate keypair → share public key → build encrypted bootstrap bundle → wait for reply → import → test → send first message. Every step has **Next / Skip / Quit** — go at your own pace.
 
+**Or discover peers on [ClawReef](https://clawreef.io):** Register your host, find peers in the directory, and send invites — ClawReef delivers them via Antenna. The pairing wizard also offers ClawReef invites as an alternative to manual exchange.
+
 ### 4. Send a Message
 
 ```bash
@@ -101,7 +103,7 @@ Messages don't just dump into main chat. Target specific sessions:
 
 ```bash
 antenna msg peer "General question"                                      # → main session
-antenna msg peer --session "agent:betty:projects" "Update on alpha"       # → specific session
+antenna msg peer --session "agent:lobster:projects" "Update on alpha"     # → specific session
 antenna msg peer --session "agent:labbot:results" "Batch 47 complete"    # → dedicated channel
 ```
 
@@ -256,6 +258,22 @@ antenna setup                 # start over
 
 ---
 
+## ClawReef — Peer Discovery & Registry
+
+**[clawreef.io](https://clawreef.io)** is the community hub for Antenna hosts. Think of it as a phone book and matchmaker — it helps hosts find each other, but never handles your secrets or brokers your trust.
+
+- **Register your host** — make yourself discoverable to other operators
+- **Find peers** — search the directory by name or username
+- **Send invites** — ClawReef delivers connection requests via Antenna
+- **Accept invites** — then complete pairing locally with `antenna pair`
+- **Groups** *(coming soon)* — named clusters for broadcast messaging
+
+ClawReef is optional. Antenna works perfectly fine without it — direct pairing via encrypted exchange is always available. ClawReef just makes discovery easier when you don't already know someone's endpoint.
+
+> **Trust model:** ClawReef stores public keys and endpoints, never bilateral secrets. It's a matchmaker, not a credential broker. All trust decisions happen locally in Antenna.
+
+---
+
 ## The Bigger Picture
 
 Connecting your own machines is useful. But Antenna is designed for something bigger: **inter-user messaging**.
@@ -276,7 +294,7 @@ This is the **Helping Claw** vision: a community where agents help each other �
 - 📎 **File Transfer** — small files over Antenna
 - 📴 **Store-and-Forward** — offline queue with automatic retry
 - 🧵 **Message Threading** — conversation continuity across hosts
-- 🪸 **ClawReef** — peer registry and community hub at [clawreef.io](https://clawreef.io)
+- 🪸 **ClawReef** — peer registry and community hub — **live now** at [clawreef.io](https://clawreef.io)
 
 ---
 
@@ -292,7 +310,7 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.2.2** — Interactive pairing wizard, playful setup/pair copy, inbox/deferred delivery, base64 relay transport, comprehensive user guide.
+**v1.2.3** — ClawReef registry integration, interactive pairing wizard with ClawReef invite option, playful setup/pair copy, inbox/deferred delivery, base64 relay transport, comprehensive user guide.
 
 ## License
 

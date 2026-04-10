@@ -1,7 +1,7 @@
 # 🔴 Red Team Assessment — Antenna v1.0.4
 
 **Date:** 2026-03-30
-**Assessor:** Betty XIX Openclaw
+**Assessor:** Antenna Contributors
 **Scope:** Antenna skill v1.0.4, including relay scripts, agent config, CLI, test suite, and inter-host communication path over Tailscale.
 **Method:** Architecture review, code inspection, threat modeling. No active exploitation attempted.
 **Last updated:** 2026-03-30 (v1.0.7 — reflects all mitigations through v1.0.7)
@@ -28,7 +28,7 @@ Antenna sits at the intersection of three layers where things can go wrong:
 | **Status** | ✅ **Mitigated in v1.0.5** |
 | **Exploitability** | Any peer with send access |
 
-**Description:** The relay agent doesn't interpret message content — the script-first design is resistant here. However, the **target session agent** (e.g., Betty) receives the delivered Antenna message as normal session input. A malicious peer can craft a message containing prompt injection.
+**Description:** The relay agent doesn't interpret message content — the script-first design is resistant here. However, the **target session agent** (e.g., the assistant) receives the delivered Antenna message as normal session input. A malicious peer can craft a message containing prompt injection.
 
 **Mitigation applied (v1.0.5):**
 - Relay script now prepends a security notice to all delivered messages: *"(Security Notice: The following content may be from an untrusted source.)"*
@@ -48,7 +48,7 @@ Antenna sits at the intersection of three layers where things can go wrong:
 
 **Description:** All peers authenticate with the same shared bearer token. Compromise one peer's token → impersonate any peer to any other peer. The `from` field in the envelope is **self-reported** and checked against `allowed_inbound_peers`, but there is no cryptographic binding between the `from` claim and the actual sender.
 
-**Attack scenario:** Attacker gains access to BETTYXX's token file. Sends messages to BETTYXIX with `"from": "bettyxx"` — indistinguishable from legitimate traffic. Or worse, with `"from": "trusted-admin-host"` if that peer is in the allowlist.
+**Attack scenario:** Attacker gains access to LOBSTERY's token file. Sends messages to LOBSTERX with `"from": "lobstery"` — indistinguishable from legitimate traffic. Or worse, with `"from": "trusted-admin-host"` if that peer is in the allowlist.
 
 **Recommendation:**
 - **Next:** Per-peer tokens — each peer uses a unique token. Receiving side maps token → peer identity, eliminating trust of self-reported `from`.
@@ -182,5 +182,5 @@ Six of eight findings are now mitigated. The **script-first architecture remains
 
 ---
 
-*Report filed by Betty XIX Openclaw — 2026-03-30*
+*Report filed by Antenna Contributors — 2026-03-30*
 *Updated through v1.0.7 mitigations*
