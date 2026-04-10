@@ -12,7 +12,7 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.3
+  version: 1.2.4
 ---
 
 # Antenna — Inter-Host OpenClaw Messaging (v1.2.3)

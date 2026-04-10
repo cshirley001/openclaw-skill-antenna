@@ -97,6 +97,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 TOTAL_STEPS=8
+USED_CLAWREEF=false
 
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -161,11 +162,14 @@ if wizard_prompt 3 $TOTAL_STEPS "Send a ClawReef invite instead? 🪸"; then
   echo -e "    4. When they accept, you both finish pairing locally"
   echo ""
   echo -e "  ${DIM}If they're not on ClawReef (or you prefer direct exchange),${NC}"
-  echo -e "  ${DIM}just press Next to continue with the encrypted bundle steps.${NC}"
+  echo -e "  ${DIM}choose [S]kip and continue with the encrypted bundle steps below.${NC}"
+  echo -e "  ${DIM}You can also skip and share bundles by email or another method.${NC}"
   echo ""
+  USED_CLAWREEF=false
   if [[ -t 0 ]]; then
     prompt_value _cr_choice "Open clawreef.io/registry/dashboard/invites in your browser? (y/N)" "n"
     if [[ "${_cr_choice,,}" == "y" || "${_cr_choice,,}" == "yes" ]]; then
+      USED_CLAWREEF=true
       # Try to open browser (works on most platforms)
       if command -v xdg-open &>/dev/null; then
         xdg-open "https://clawreef.io/registry/dashboard/invites" 2>/dev/null &
@@ -183,6 +187,12 @@ fi
 # ── Step 4: Get peer info and create bundle ──────────────────────────────────
 
 if wizard_prompt 4 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
+  if [[ "$USED_CLAWREEF" == "true" ]]; then
+    echo ""
+    info "Already sent a ClawReef invite? You can ${BOLD}[S]kip${NC} steps 4–6."
+    info "They're for direct encrypted exchange — not needed if you're using ClawReef."
+    echo ""
+  fi
   echo ""
   # Get peer ID
   if [[ -z "$PEER_ID" ]]; then

@@ -2,6 +2,13 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.4] — 2026-04-10
+
+### Fixed
+- Setup agent auto-detection now handles both `agents.entries{}` and `agents.list[]` gateway config formats
+- Pair wizard Step 3 now hints to choose [S]kip for email/manual exchange when not using ClawReef
+- Pair wizard Steps 4+ show a "skip 4–6" note when ClawReef invite was used in Step 3
+
 ## [1.2.3] — 2026-04-10
 
 ### Added

@@ -190,11 +190,13 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   DETECTED_AGENT=""
   for candidate in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do
     if [[ -f "$candidate" ]]; then
-      # Find the first non-antenna agent ID
+      # Find the first non-antenna agent ID (supports both entries{} and list[] formats)
       DETECTED_AGENT=$(jq -r '
-        .agents.entries // {} | to_entries[]
-        | select(.key != "antenna")
-        | .key' "$candidate" 2>/dev/null | head -1)
+        (if .agents.entries then
+          .agents.entries | to_entries[] | select(.key != "antenna") | .key
+        elif .agents.list then
+          .agents.list[] | select(.id != "antenna") | .id
+        else empty end)' "$candidate" 2>/dev/null | head -1)
       [[ -n "$DETECTED_AGENT" ]] && break
     fi
   done
