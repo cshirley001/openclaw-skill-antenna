@@ -611,9 +611,14 @@ Yes. Point `relay_agent_model` at any model your OpenClaw gateway can reach — 
 
 **Q: How do I update Antenna?**
 ```bash
+# From git:
 cd ~/clawd/skills/antenna && git pull origin main
+
+# From ClawHub:
+clawhub update antenna
+bash skills/antenna/install.sh   # re-fix permissions after update
 ```
-Or reinstall from ClawHub. Check the [CHANGELOG](CHANGELOG.md) for what's new.
+Check the [CHANGELOG](CHANGELOG.md) for what's new.
 
 **Q: Is there a message size limit?**
 Default is 10,000 characters, configurable via `max_message_length` in `antenna-config.json`. Messages over the limit are rejected before sending.

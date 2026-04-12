@@ -874,7 +874,8 @@ fire-and-forget, fully encrypted, with audit logging.
 
 Want to connect? Here's how:
 
-1. Install the skill:  clawhub install antenna
+1. Install the skill:
+   clawhub install antenna && bash skills/antenna/install.sh
    Or clone: https://github.com/cshirley001/openclaw-skill-antenna
 
 2. Add me as a peer in your antenna-peers.json:
