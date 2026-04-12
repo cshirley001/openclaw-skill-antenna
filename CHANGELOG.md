@@ -2,6 +2,12 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.5] — 2026-04-11
+
+### Fixed
+- **ClawHub packaging fix:** Renamed `bin/antenna` → `bin/antenna.sh` so the CLI dispatcher is included in ClawHub packages. ClawHub's `listTextFiles()` silently drops extensionless files because they fail the text-extension allowlist check. The symlink created by `antenna setup` remains just `antenna` on PATH.
+- Updated all internal references (setup symlink logic, file inventories, FSD, docs) to reflect the new `bin/antenna.sh` filename.
+
 ## [1.2.4] — 2026-04-10
 
 ### Fixed

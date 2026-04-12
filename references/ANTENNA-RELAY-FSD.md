@@ -578,7 +578,7 @@ antenna status                             # Overall status (peers, last activit
 
 ### Implementation
 
-Bash dispatcher script (`antenna`) that routes to sub-scripts or inline functions. Installed to `skills/antenna/bin/antenna` and symlinked or aliased for PATH access.
+Bash dispatcher script (`antenna.sh`) that routes to sub-scripts or inline functions. Installed to `skills/antenna/bin/antenna.sh` and symlinked as `antenna` for PATH access.
 
 ---
 
@@ -702,7 +702,7 @@ Summary (when --runs > 1):
 ### File
 
 `scripts/antenna-model-test.sh` — standalone script.
-`bin/antenna test` — CLI dispatch entry point.
+`bin/antenna.sh test` — CLI dispatch entry point.
 
 ---
 
@@ -808,7 +808,7 @@ antenna test-suite [options]
 ### File
 
 `scripts/antenna-test-suite.sh` — standalone script.
-`bin/antenna test-suite` — CLI dispatch entry point.
+`bin/antenna.sh test-suite` — CLI dispatch entry point.
 
 ---
 

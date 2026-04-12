@@ -818,7 +818,7 @@ fi
 # Ensure `antenna` CLI is on PATH so agents (and humans) can just type "antenna".
 header "═══ Putting Antenna on Your PATH ═══"
 
-ANTENNA_BIN="$SKILL_DIR/bin/antenna"
+ANTENNA_BIN="$SKILL_DIR/bin/antenna.sh"
 SYMLINK_TARGET=""
 
 # Prefer /usr/local/bin; fall back to ~/.local/bin

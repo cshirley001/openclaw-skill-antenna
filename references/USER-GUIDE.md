@@ -681,7 +681,7 @@ skills/antenna/
 ├── SKILL.md                         # Skill definition (for OpenClaw)
 ├── CHANGELOG.md                     # Release history
 ├── bin/
-│   └── antenna                      # CLI dispatcher
+│   └── antenna.sh                   # CLI dispatcher
 ├── scripts/
 │   ├── antenna-send.sh              # Sender: builds envelope, POSTs
 │   ├── antenna-relay.sh             # Receiver: parse, validate, format
