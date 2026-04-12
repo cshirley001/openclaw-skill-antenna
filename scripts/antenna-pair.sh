@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 BIN_DIR="$SKILL_DIR/bin"
-ANTENNA="$BIN_DIR/antenna"
+ANTENNA="$BIN_DIR/antenna.sh"
 
 # Colors
 RED='\033[0;31m'
