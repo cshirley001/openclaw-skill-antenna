@@ -2,6 +2,12 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.8] — 2026-04-12
+
+### Fixed
+- **Pairing wizard crash on clean install:** `scripts/antenna-pair.sh` hard-coded `bin/antenna` instead of the renamed `bin/antenna.sh` entrypoint, causing immediate failure.
+- **Dangling CLI symlink after uninstall:** `antenna uninstall --purge-skill-dir` now removes the `/usr/local/bin/antenna` (or `~/.local/bin/antenna`) symlink created by setup, instead of leaving it dangling.
+
 ## [1.2.7] — 2026-04-11
 
 ### Added
