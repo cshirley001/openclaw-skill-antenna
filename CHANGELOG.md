@@ -2,6 +2,12 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.9] — 2026-04-12
+
+### Changed
+- **Self-healing permissions:** `antenna.sh` now auto-fixes execute bits on all scripts on first run. `install.sh` is no longer required after `clawhub install`. The new onboarding flow is just: `clawhub install antenna && bash skills/antenna/bin/antenna.sh setup`.
+- **Simplified Quick Start:** README and User Guide consolidated install + setup into a single two-command step. `install.sh` remains available but is marked optional.
+
 ## [1.2.8] — 2026-04-12
 
 ### Fixed

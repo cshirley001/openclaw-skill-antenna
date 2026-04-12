@@ -81,29 +81,22 @@ Think CVE notifications, but peer-to-peer, agent-delivered, and actionable on ar
 
 From zero to your first message in under five minutes.
 
-### 1. Install
+### 1. Install & Setup
 
 ```bash
 clawhub install antenna
-bash skills/antenna/install.sh
+bash skills/antenna/bin/antenna.sh setup
 ```
+
+That's both steps. The CLI auto-fixes file permissions on first run (ClawHub doesn't preserve them), then the setup wizard walks you through six questions — host ID, endpoint URL, agent ID, relay model, inbox preference, and hooks token — and handles gateway registration, CLI path, and everything else.
 
 Or clone directly:
 ```bash
-git clone https://github.com/cshirley001/openclaw-skill-antenna.git ~/clawd/skills/antenna
-bash skills/antenna/install.sh
+git clone https://github.com/ClawReefAntenna/antenna.git ~/clawd/skills/antenna
+bash skills/antenna/bin/antenna.sh setup
 ```
 
-`install.sh` fixes file permissions (ClawHub doesn't preserve them) and offers to run setup.
-
-### 2. Run Setup
-
-If you skipped it during install:
-```bash
-antenna setup
-```
-
-The wizard walks you through six questions — host ID, endpoint URL, agent ID, relay model, inbox preference, and hooks token — then handles gateway registration, CLI path, and everything else automatically. It'll auto-detect what it can and offer to generate what's missing.
+After setup, `antenna` is on your PATH — all future commands are just `antenna <command>`.
 
 When it's done, you'll see:
 
@@ -622,7 +615,7 @@ cd ~/clawd/skills/antenna && git pull origin main
 
 # From ClawHub:
 clawhub update antenna
-bash skills/antenna/install.sh   # re-fix permissions after update
+bash skills/antenna/bin/antenna.sh setup   # re-fix permissions + verify config
 ```
 Check the [CHANGELOG](CHANGELOG.md) for what's new.
 

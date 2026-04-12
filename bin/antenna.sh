@@ -15,6 +15,18 @@ REAL_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "
 SCRIPT_DIR="$(cd "$(dirname "$REAL_PATH")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 SCRIPTS_DIR="$SKILL_DIR/scripts"
+
+# ── Self-healing permissions ─────────────────────────────────────────────────
+# ClawHub doesn't preserve execute bits. Fix them on first run so install.sh
+# is optional and everything Just Works after `clawhub install antenna`.
+_fix_perms() {
+  local fixed=0
+  for f in "$SCRIPT_DIR"/*.sh "$SCRIPTS_DIR"/*.sh; do
+    [[ -f "$f" && ! -x "$f" ]] && chmod +x "$f" 2>/dev/null && fixed=$((fixed + 1))
+  done
+  [[ $fixed -gt 0 ]] && echo -e "\033[0;36mℹ\033[0m  Fixed execute permissions on $fixed file(s)." >&2
+}
+_fix_perms
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 LOG_FILE="$SKILL_DIR/$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")"

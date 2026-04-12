@@ -28,31 +28,24 @@ Each OpenClaw installation keeps its own brain, workspace, and identity. Antenna
 
 From zero to your first message in under five minutes.
 
-### 1. Install
+### 1. Install & Setup
 
 ```bash
 clawhub install antenna
-bash skills/antenna/install.sh
+bash skills/antenna/bin/antenna.sh setup
 ```
+
+That's both steps. The CLI auto-fixes file permissions on first run (ClawHub doesn't preserve them), then the setup wizard walks you through six questions — host ID, endpoint URL, agent ID, relay model, inbox preference, and hooks token — and handles gateway registration, CLI path, and everything else.
 
 Or clone directly:
 ```bash
-git clone https://github.com/cshirley001/openclaw-skill-antenna.git ~/clawd/skills/antenna
-bash skills/antenna/install.sh
+git clone https://github.com/ClawReefAntenna/antenna.git ~/clawd/skills/antenna
+bash skills/antenna/bin/antenna.sh setup
 ```
 
-`install.sh` fixes file permissions (ClawHub doesn't preserve them) and offers to run setup.
+After setup, `antenna` is on your PATH — all future commands are just `antenna <command>`.
 
-### 2. Run Setup
-
-If you skipped it during install:
-```bash
-antenna setup
-```
-
-The wizard walks you through six questions — host ID, endpoint URL, agent ID, relay model, inbox preference, and hooks token — then handles gateway registration, CLI path, and everything else automatically.
-
-### 3. Pair with a Peer
+### 2. Pair with a Peer
 
 ```bash
 antenna pair
@@ -62,7 +55,7 @@ Seven interactive steps: generate keypair → share public key → build encrypt
 
 **Or discover peers on [ClawReef](https://clawreef.io):** Register your host, find peers in the directory, and send invites — ClawReef delivers them via Antenna. The pairing wizard also offers ClawReef invites as an alternative to manual exchange.
 
-### 4. Send a Message
+### 3. Send a Message
 
 ```bash
 antenna msg mypeer "Hello from the other side of the reef! 🦞"
