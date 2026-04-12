@@ -13,6 +13,7 @@ description: >
   "check antenna inbox", "approve message".
 metadata:
   version: 1.2.9
+postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
 # Antenna — Inter-Host OpenClaw Messaging (v1.2.9)
