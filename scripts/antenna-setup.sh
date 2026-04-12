@@ -87,7 +87,7 @@ Non-interactive:
   antenna setup --host-id myhost \
     --display-name "My Host (Server)" \
     --url "https://myhost.tailXXXXX.ts.net" \
-    --agent-id lobster \
+    --agent-id main \
     --model "openai/gpt-4o-mini" \
     --token-file /path/to/hooks_token \
     [--force]
@@ -156,7 +156,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   echo "  You'll need:"
   echo "    1. A host ID (usually just your hostname)"
   echo "    2. Your reachable HTTPS hook URL"
-  echo "    3. Your primary agent ID (e.g., 'lobster')"
+  echo "    3. Your primary agent ID (e.g., 'main', 'betty', 'lobster')"
   echo "    4. A relay model (lightweight is best — the relay doesn't think, it dispatches)"
   echo "    5. Whether to enable inbox mode (optional, more secure)"
   echo "    6. Your OpenClaw hooks bearer token (setup can auto-detect or generate one)"
@@ -378,7 +378,62 @@ else
   DISPLAY_NAME="${NI_DISPLAY:-${HOST_ID^}}"
   HOST_URL="${NI_URL:?--url is required}"
   HOST_URL="${HOST_URL%/}"
-  AGENT_ID="${NI_AGENT:?--agent-id is required}"
+  # Auto-detect primary agent from gateway config if --agent-id not given
+  if [[ -z "$NI_AGENT" ]]; then
+    for _cand in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do
+      if [[ -f "$_cand" ]]; then
+        NI_AGENT=$(jq -r '(
+          if .agents.entries then
+            .agents.entries | to_entries[] | select(.key != "antenna") | .key
+          elif .agents.list then
+            .agents.list[] | select(.id != "antenna") | .id
+          else empty end)' "$_cand" 2>/dev/null | head -1)
+        [[ -n "$NI_AGENT" ]] && break
+      fi
+    done
+    if [[ -z "$NI_AGENT" ]]; then
+      error "Could not detect primary agent. Pass --agent-id explicitly."
+      exit 1
+    fi
+    info "Auto-detected primary agent: ${BOLD}${NI_AGENT}${NC}"
+  else
+    # Validate supplied --agent-id against registered agents
+    _found=""
+    for _cand in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do
+      if [[ -f "$_cand" ]]; then
+        _found=$(jq -r --arg id "$NI_AGENT" '(
+          if .agents.entries then
+            .agents.entries | to_entries[] | select(.key == $id) | .key
+          elif .agents.list then
+            .agents.list[] | select(.id == $id) | .id
+          else empty end)' "$_cand" 2>/dev/null | head -1)
+        [[ -n "$_found" ]] && break
+      fi
+    done
+    if [[ -z "$_found" ]]; then
+      warn "--agent-id '$NI_AGENT' is not a registered agent in the gateway config."
+      # Try to suggest the right one
+      _suggested=""
+      for _cand in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do
+        if [[ -f "$_cand" ]]; then
+          _suggested=$(jq -r '(
+            if .agents.entries then
+              .agents.entries | to_entries[] | select(.key != "antenna") | .key
+            elif .agents.list then
+              .agents.list[] | select(.id != "antenna") | .id
+            else empty end)' "$_cand" 2>/dev/null | head -1)
+          [[ -n "$_suggested" ]] && break
+        fi
+      done
+      if [[ -n "$_suggested" ]]; then
+        warn "Did you mean '$_suggested'? Using '$_suggested' instead."
+        NI_AGENT="$_suggested"
+      else
+        warn "Proceeding with '$NI_AGENT' — relay messages may not be visible in the UI."
+      fi
+    fi
+  fi
+  AGENT_ID="$NI_AGENT"
   RELAY_MODEL="${NI_MODEL:-openai/gpt-4o-mini}"
 
   # Resolve model alias if --model matched an alias name
@@ -680,15 +735,15 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         _def_workspace=$(jq -r '.agents.defaults.workspace // "~/clawd"' "$GATEWAY_CFG" 2>/dev/null || echo "~/clawd")
         _def_model=$(jq -r '.agents.defaults.model.primary // "openai/gpt-4o-mini"' "$GATEWAY_CFG" 2>/dev/null || echo "openai/gpt-4o-mini")
         tmp_gw=$(mktemp)
-        jq --arg ws "$_def_workspace" --arg model "$_def_model" '
+        jq --arg aid "$AGENT_ID" --arg ws "$_def_workspace" --arg model "$_def_model" '
           .agents.list = [{
-            id: "lobster",
+            id: $aid,
             name: "Main Agent",
             model: $model,
             agentDir: $ws
           }]
         ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-        info "Created default main agent entry (agents.list was empty)"
+        info "Created default main agent entry '$AGENT_ID' (agents.list was empty)"
       fi
 
       # 3) Register antenna agent if not already present

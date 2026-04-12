@@ -2,6 +2,12 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.15] — 2026-04-12
+### Fixed
+- Setup no longer hardcodes `lobster` as default main agent ID when `agents.list` is empty — now uses the user-provided `--agent-id` value, so relay messages target the correct registered agent
+- Non-interactive setup auto-detects primary agent from gateway config when `--agent-id` is omitted, and warns/corrects if the supplied ID doesn't match a registered agent
+- Updated help text examples to use `main` instead of `lobster`
+
 ## [1.2.14] — 2026-04-12
 
 ### Fixed
