@@ -410,6 +410,10 @@ else
   fi
 fi
 
+if [[ $FAIL -gt 0 || $WARN -gt 0 ]]; then
+  echo -e "  Still stuck? ${CYAN}help@clawreef.io${NC} · ${CYAN}https://github.com/ClawReefAntenna/antenna/issues${NC}"
+fi
+
 echo ""
 
 # Exit code: 0 = all good, 1 = failures present

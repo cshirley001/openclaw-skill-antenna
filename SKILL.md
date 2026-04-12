@@ -12,10 +12,10 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.6
+  version: 1.2.7
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.2.6)
+# Antenna — Inter-Host OpenClaw Messaging (v1.2.7)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -366,3 +366,9 @@ On each host:
 - `hooks.allowedSessionKeyPrefixes` includes `"hook:antenna"`
 - `commands.ownerDisplay` set to `"raw"` (required for relay messages to appear in Control UI)
 - Exec allowlist entries for Antenna agent: `/usr/bin/bash`, `/usr/bin/echo`, `/usr/bin/jq`, `/usr/bin/cat`
+
+## Support
+
+- 📧 **Email:** [help@clawreef.io](mailto:help@clawreef.io)
+- 🐛 **Issues:** [github.com/ClawReefAntenna/antenna/issues](https://github.com/ClawReefAntenna/antenna/issues)
+- 🔒 **Security:** See [SECURITY.md](SECURITY.md)

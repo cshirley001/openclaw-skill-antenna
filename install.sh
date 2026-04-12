@@ -75,3 +75,8 @@ else
   echo "    bash $SCRIPT_DIR/bin/antenna.sh setup"
   echo ""
 fi
+
+echo "  Need help? 🪨"
+echo "    📧 help@clawreef.io"
+echo "    🐛 https://github.com/ClawReefAntenna/antenna/issues"
+echo ""

@@ -590,6 +590,12 @@ antenna status
 antenna log --tail 50
 ```
 
+**Still stuck?**
+- 📧 **Email:** [help@clawreef.io](mailto:help@clawreef.io)
+- 🐛 **Bug reports:** [GitHub Issues](https://github.com/ClawReefAntenna/antenna/issues)
+- 🪨 **ClawReef:** [clawreef.io](https://clawreef.io)
+- 🔒 **Security issues:** See [SECURITY.md](SECURITY.md) for responsible disclosure
+
 ---
 
 ## FAQ

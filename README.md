@@ -318,7 +318,14 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.2.3** — ClawReef registry integration, interactive pairing wizard with ClawReef invite option, playful setup/pair copy, inbox/deferred delivery, base64 relay transport, comprehensive user guide.
+**v1.2.7** — Support contact info, SECURITY.md, ClawReef integration, interactive pairing wizard, inbox/deferred delivery, base64 relay transport, comprehensive user guide.
+
+## Getting Help
+
+- 📧 **Email:** [help@clawreef.io](mailto:help@clawreef.io)
+- 🐛 **Bug reports & feature requests:** [GitHub Issues](https://github.com/ClawReefAntenna/antenna/issues)
+- 🪨 **ClawReef:** [clawreef.io](https://clawreef.io)
+- 🔒 **Security vulnerabilities:** See [SECURITY.md](SECURITY.md)
 
 ## License
 

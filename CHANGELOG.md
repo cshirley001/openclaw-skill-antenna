@@ -2,6 +2,15 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.7] — 2026-04-11
+
+### Added
+- **Support contact info** (`help@clawreef.io`) added to README, SKILL.md, User Guide, `install.sh`, and `antenna doctor` output.
+- **"Getting Help" section** in README with email, GitHub Issues, ClawReef, and SECURITY.md links.
+- **SECURITY.md** for responsible vulnerability disclosure (standard GitHub convention).
+- `antenna doctor` now prints support contact info when warnings or failures are present.
+- `install.sh` now shows support contact info at the end of every run.
+
 ## [1.2.6] — 2026-04-11
 
 ### Added
