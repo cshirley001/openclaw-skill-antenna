@@ -360,6 +360,8 @@ cmd_peers() {
         echo "Unknown peer: $id" >&2; exit 1
       fi
 
+      # Resolve relative token paths against SKILL_DIR
+      [[ "$token_file" != /* ]] && token_file="$SKILL_DIR/$token_file"
       token=$(cat "$token_file" 2>/dev/null || echo "")
       echo "Testing connectivity to $id ($peer_url)..."
 

@@ -21,6 +21,9 @@ if [[ -z "$PEER_URL" ]]; then
   exit 1
 fi
 
+# Resolve relative token paths against SKILL_DIR
+[[ -n "$TOKEN_FILE" && "$TOKEN_FILE" != /* ]] && TOKEN_FILE="$SKILL_DIR/$TOKEN_FILE"
+
 if [[ -z "$TOKEN_FILE" || ! -f "$TOKEN_FILE" ]]; then
   echo "{\"error\":\"Token file not found for peer: $PEER\"}" >&2
   exit 1

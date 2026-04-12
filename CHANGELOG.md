@@ -2,6 +2,11 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.13] — 2026-04-12
+
+### Fixed
+- **Relative token path resolution:** `peers test`, `antenna-send.sh`, and `antenna-health.sh` now resolve relative `token_file` paths against the skill directory. Previously, these commands silently sent an empty Bearer token when invoked from a different working directory, causing `401 AUTH FAILED` despite correct credentials.
+
 ## [1.2.12] — 2026-04-12
 
 ### Fixed
