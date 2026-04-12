@@ -2,6 +2,11 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.16] — 2026-04-12
+### Fixed
+- Setup now includes `workspace` when creating default main agent entry — missing workspace caused hook-injected relay messages to be invisible in Control UI
+- Uses user-provided `--agent-id` (not hardcoded `lobster`) for the default agent
+
 ## [1.2.15] — 2026-04-12
 ### Fixed
 - Setup no longer hardcodes `lobster` as default main agent ID when `agents.list` is empty — now uses the user-provided `--agent-id` value, so relay messages target the correct registered agent

@@ -740,7 +740,8 @@ if [[ -n "$GATEWAY_CFG" ]]; then
             id: $aid,
             name: "Main Agent",
             model: $model,
-            agentDir: $ws
+            agentDir: $ws,
+            workspace: $ws
           }]
         ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
         info "Created default main agent entry '$AGENT_ID' (agents.list was empty)"
