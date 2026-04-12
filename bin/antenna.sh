@@ -29,6 +29,25 @@ _fix_perms() {
 _fix_perms
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
+
+# ── Setup guard ──────────────────────────────────────────────────────────────
+# If config doesn't exist yet, only setup/help/--help/-h are allowed.
+_peek_command="${1:-}"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  case "$_peek_command" in
+    setup|help|-h|--help) ;; # allow through
+    *)
+      echo ""
+      echo "  Antenna is not configured yet."
+      echo ""
+      echo "  Run:  antenna setup"
+      echo "    or: bash $(realpath "$0" 2>/dev/null || echo "$0") setup"
+      echo ""
+      exit 1
+      ;;
+  esac
+fi
+
 LOG_FILE="$SKILL_DIR/$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")"
 
 usage() {
