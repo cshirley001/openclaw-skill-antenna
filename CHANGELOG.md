@@ -2,6 +2,15 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.14] — 2026-04-12
+
+### Fixed
+- **Relay agent exec policy:** Setup no longer sets `tools.exec.security` or `tools.exec.ask` on the antenna agent registration. Explicit exec overrides caused silent relay failures where the hook session acknowledged messages but `sessions_send` never executed, making relayed messages invisible in the Control UI despite successful delivery. The relay now inherits the default exec policy, matching the proven working configuration.
+
+### Changed
+- Existing antenna agent entries are updated on re-run to remove stale `tools.exec` overrides.
+- Setup summary output no longer shows exec allowlist settings.
+
 ## [1.2.13] — 2026-04-12
 
 ### Fixed

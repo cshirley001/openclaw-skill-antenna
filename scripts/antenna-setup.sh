@@ -694,11 +694,10 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       # 3) Register antenna agent if not already present
       #    The relay agent gets:
       #    - sandbox off: prevents per-command-hash approval prompts
-      #    - tools.exec.security=allowlist + ask=off: allows allowlisted binaries without prompts
-      #      (sandbox.mode alone is insufficient on newer OpenClaw builds; heredocs still
-      #       trigger approval even with sandbox off, so the relay uses antenna-relay-exec.sh
-      #       wrapper to avoid heredocs entirely)
       #    - restrictive tools.deny: least-privilege (only exec + sessions_send needed)
+      #    NOTE: Do NOT set tools.exec (security/ask) on the antenna agent.
+      #    Explicit exec overrides cause silent relay failures where the hook session
+      #    acknowledges but sessions_send never executes, making messages invisible.
       has_antenna=""
       has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
       if [[ "$has_antenna" -eq 0 ]]; then
@@ -712,7 +711,6 @@ if [[ -n "$GATEWAY_CFG" ]]; then
             workspace: $agentdir,
             sandbox: { mode: "off" },
             tools: {
-              exec: { security: "allowlist", ask: "off" },
               deny: [
                 "group:web", "browser", "image", "image_generate",
                 "cron", "memory_search", "memory_get",
@@ -733,7 +731,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
               if .id == "antenna" then
                 .sandbox = { mode: "off" } |
                 .tools = (.tools // {}) |
-                .tools.exec = { security: "allowlist", ask: "off" } |
+                .tools |= del(.exec) |
                 .tools.deny = (.tools.deny // [
                   "group:web", "browser", "image", "image_generate",
                   "cron", "memory_search", "memory_get",
@@ -742,7 +740,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
               else . end
             ]
           ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-          ok "Updated existing Antenna agent: sandbox off, exec allowlist mode, least-privilege tools"
+          ok "Updated existing Antenna agent: sandbox off, least-privilege tools"
         fi
       fi
 
@@ -882,7 +880,7 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "       allowedAgentIds: [\"antenna\"]"
   echo "       allowedSessionKeyPrefixes: [\"hook:\", \"agent:${AGENT_ID}:\"]"
   echo ""
-  echo -e "  ${BOLD}2. Register the Antenna agent (sandbox off + exec allowlist + least-privilege):${NC}"
+  echo -e "  ${BOLD}2. Register the Antenna agent (sandbox off + least-privilege):${NC}"
   echo "     agents:"
   echo "       - id: antenna"
   echo "         name: Antenna Relay"
@@ -892,9 +890,6 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "         sandbox:"
   echo "           mode: off"
   echo "         tools:"
-  echo "           exec:"
-  echo "             security: allowlist"
-  echo "             ask: off"
   echo "           deny: [group:web, browser, image, image_generate,"
   echo "                  cron, memory_search, memory_get, web_search, web_fetch]"
   echo ""
