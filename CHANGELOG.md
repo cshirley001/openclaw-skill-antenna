@@ -2,6 +2,12 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.6] — 2026-04-11
+
+### Added
+- **`install.sh` post-install bootstrap script.** Fixes file permissions (ClawHub doesn't preserve execute bits on `.sh` files) and offers to run `antenna setup`. New user flow: `clawhub install antenna && bash skills/antenna/install.sh`.
+- Updated README and User Guide install instructions to include the `install.sh` step.
+
 ## [1.2.5] — 2026-04-11
 
 ### Fixed

@@ -32,12 +32,20 @@ From zero to your first message in under five minutes.
 
 ```bash
 clawhub install antenna
-# or clone directly:
-git clone https://github.com/cshirley001/openclaw-skill-antenna.git ~/clawd/skills/antenna
+bash skills/antenna/install.sh
 ```
+
+Or clone directly:
+```bash
+git clone https://github.com/cshirley001/openclaw-skill-antenna.git ~/clawd/skills/antenna
+bash skills/antenna/install.sh
+```
+
+`install.sh` fixes file permissions (ClawHub doesn't preserve them) and offers to run setup.
 
 ### 2. Run Setup
 
+If you skipped it during install:
 ```bash
 antenna setup
 ```
