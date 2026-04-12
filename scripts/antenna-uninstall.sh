@@ -255,6 +255,23 @@ for path in "$LOG_FILE" "$LOG_FILE".*; do
 done
 shopt -u nullglob
 
+# ── Remove CLI symlink ────────────────────────────────────────────────────────
+# Setup creates a symlink at /usr/local/bin/antenna or ~/.local/bin/antenna.
+# Clean it up if it points into our skill directory (or is dangling).
+for _symlink_candidate in /usr/local/bin/antenna "$HOME/.local/bin/antenna"; do
+  if [[ -L "$_symlink_candidate" ]]; then
+    _link_target="$(readlink -f "$_symlink_candidate" 2>/dev/null || true)"
+    # Remove if it points into the skill dir or is dangling (target gone)
+    if [[ -z "$_link_target" || "$_link_target" == "$SKILL_DIR"* ]]; then
+      if [[ "$DRY_RUN" == true ]]; then
+        info "Would remove symlink: $_symlink_candidate"
+      else
+        rm -f -- "$_symlink_candidate" 2>/dev/null && ok "Removed symlink: $_symlink_candidate" || warn "Could not remove symlink: $_symlink_candidate (may need sudo)"
+      fi
+    fi
+  fi
+done
+
 if [[ "$PURGE_SKILL_DIR" == true ]]; then
   warn "Purging the Antenna skill directory will remove the uninstall command itself from this install."
   remove_if_exists "$SKILL_DIR"
