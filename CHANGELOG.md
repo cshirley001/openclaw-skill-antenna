@@ -2,6 +2,15 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.12] — 2026-04-12
+
+### Fixed
+- **Fresh-install setup guard:** running `antenna` before setup now prints a clear next-step hint instead of failing on missing runtime files.
+- **`set -e` second-run crash:** the self-healing permissions pass in `bin/antenna.sh` no longer exits the script when there are no permissions left to fix.
+
+### Changed
+- **Zero-config onboarding hint:** unconfigured installs now direct the user to `antenna setup` or `bash skills/antenna/bin/antenna.sh setup`.
+
 ## [1.2.9] — 2026-04-12
 
 ### Changed

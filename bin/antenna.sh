@@ -22,9 +22,13 @@ SCRIPTS_DIR="$SKILL_DIR/scripts"
 _fix_perms() {
   local fixed=0
   for f in "$SCRIPT_DIR"/*.sh "$SCRIPTS_DIR"/*.sh; do
-    [[ -f "$f" && ! -x "$f" ]] && chmod +x "$f" 2>/dev/null && fixed=$((fixed + 1))
+    if [[ -f "$f" && ! -x "$f" ]]; then
+      chmod +x "$f" 2>/dev/null && fixed=$((fixed + 1))
+    fi
   done
-  [[ $fixed -gt 0 ]] && echo -e "\033[0;36mℹ\033[0m  Fixed execute permissions on $fixed file(s)." >&2
+  if [[ $fixed -gt 0 ]]; then
+    echo -e "\033[0;36mℹ\033[0m  Fixed execute permissions on $fixed file(s)." >&2
+  fi
 }
 _fix_perms
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
