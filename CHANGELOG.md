@@ -2,6 +2,11 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.17] — 2026-04-12
+### Fixed
+- Pair wizard once again offers to email bootstrap bundles after creating them, using the existing exchange mail flow
+- Wizard now behaves gracefully on hosts without `gog` or `himalaya` by simply not offering the email option
+
 ## [1.2.16] — 2026-04-12
 ### Fixed
 - Setup now includes `workspace` when creating default main agent entry — missing workspace caused hook-injected relay messages to be invisible in Control UI

@@ -225,6 +225,31 @@ if wizard_prompt 4 $TOTAL_STEPS "Build a bootstrap bundle for your peer"; then
         echo ""
         echo -e "  ${DIM}Email attachment, scp, carrier pigeon — whatever works.${NC}"
         echo -e "  ${DIM}Just don't paste the contents inline; email clients love to mangle encoded text.${NC}"
+
+        if command -v gog >/dev/null 2>&1 || command -v himalaya >/dev/null 2>&1; then
+          echo ""
+          prompt_value SEND_BUNDLE_EMAIL "Email this bundle to your peer now? (y/N)" "n"
+          if [[ "${SEND_BUNDLE_EMAIL,,}" == "y" || "${SEND_BUNDLE_EMAIL,,}" == "yes" ]]; then
+            prompt_value BUNDLE_EMAIL "Recipient email address" ""
+            if [[ -n "$BUNDLE_EMAIL" ]]; then
+              BUNDLE_EMAIL_ACCOUNT=""
+              if command -v himalaya >/dev/null 2>&1; then
+                prompt_value BUNDLE_EMAIL_ACCOUNT "Himalaya account name (optional, press Enter to use default/Gmail)" ""
+              fi
+              echo ""
+              info "Sending encrypted bundle email..."
+              echo ""
+              EMAIL_ARGS=(peers exchange initiate "$PEER_ID" --pubkey "$PEER_PUBKEY" --output "$BUNDLE_FILE" --email "$BUNDLE_EMAIL" --send-email)
+              if [[ -n "$BUNDLE_EMAIL_ACCOUNT" ]]; then
+                EMAIL_ARGS+=(--account "$BUNDLE_EMAIL_ACCOUNT")
+              fi
+              EMAIL_OUTPUT=$(bash "$ANTENNA" "${EMAIL_ARGS[@]}" 2>&1) || true
+              echo "$EMAIL_OUTPUT"
+            else
+              warn "No email address entered — skipping email send."
+            fi
+          fi
+        fi
       fi
     fi
   fi

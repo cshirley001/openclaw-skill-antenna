@@ -12,11 +12,11 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.16
+  version: 1.2.17
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.2.16)
+# Antenna — Inter-Host OpenClaw Messaging (v1.2.17)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -161,7 +161,7 @@ antenna pair                          # Full interactive wizard
 antenna pair --peer-id myserver       # Pre-fill peer ID
 ```
 
-The wizard walks through keypair generation, public key sharing, optional ClawReef invite, bundle creation, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
+The wizard walks through keypair generation, public key sharing, optional ClawReef invite, bundle creation, optional bundle email send when mail tooling is available, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
 
 ### Peer onboarding / bootstrap exchange (manual)
 
