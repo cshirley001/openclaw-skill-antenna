@@ -800,19 +800,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         fi
       fi
 
-      # 4) Set commands.ownerDisplay = "raw" for Control UI visibility
-      #    Without this, hook-delivered messages (including Antenna relays)
-      #    are processed but not displayed in the Control UI chat view.
-      _current_od=$(jq -r '.commands.ownerDisplay // empty' "$GATEWAY_CFG" 2>/dev/null || true)
-      if [[ "$_current_od" != "raw" ]]; then
-        tmp_gw=$(mktemp)
-        jq '.commands.ownerDisplay = "raw"' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-        ok "Set commands.ownerDisplay = \"raw\" (required for Control UI visibility)"
-      else
-        info "commands.ownerDisplay already set to \"raw\""
-      fi
-
-      # 5) Enable cross-agent session visibility
+      # 4) Enable cross-agent session visibility
       #    The relay agent needs sessions_send to deliver messages into other agents' sessions.
       #    Without this, OpenClaw blocks cross-agent session access.
       _current_vis=$(jq -r '.tools.sessions.visibility // empty' "$GATEWAY_CFG" 2>/dev/null || true)
@@ -949,24 +937,20 @@ if [[ "$AUTO_REGISTERED" == "false" ]]; then
   echo "           deny: [group:web, browser, image, image_generate,"
   echo "                  cron, memory_search, memory_get, web_search, web_fetch]"
   echo ""
-  echo -e "  ${BOLD}3. Enable Control UI visibility for hook messages:${NC}"
-  echo "     commands:"
-  echo "       ownerDisplay: raw"
-  echo ""
-  echo -e "  ${BOLD}4. Enable cross-agent session access:${NC}"
+  echo -e "  ${BOLD}3. Enable cross-agent session access:${NC}"
   echo "     tools:"
   echo "       sessions:"
   echo "         visibility: all"
   echo "       agentToAgent:"
   echo "         enabled: true"
   echo ""
-  echo -e "  ${BOLD}5. Allow exec for the relay agent (no manual approval needed):${NC}"
+  echo -e "  ${BOLD}4. Allow exec for the relay agent (no manual approval needed):${NC}"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/bash"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/echo"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/jq"
   echo "     openclaw approvals allowlist add --agent antenna /usr/bin/cat"
   echo ""
-  echo -e "  ${BOLD}6. Restart your gateway:${NC}"
+  echo -e "  ${BOLD}5. Restart your gateway:${NC}"
   echo "     openclaw gateway restart"
 fi
 echo ""

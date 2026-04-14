@@ -2,7 +2,7 @@
 
 **Cross-host messaging for OpenClaw — your agents, their agents, any session, any host.**
 
-*Version 1.2.3 · An AgentSkill from the OpenClaw community*
+*Version 1.2.18 · An AgentSkill from the OpenClaw community*
 
 ---
 
@@ -277,8 +277,7 @@ Setup automatically:
 - Generates your identity secret
 - Registers the Antenna agent in your OpenClaw gateway config
 - Enables hooks and configures allowlists
-- Sets `commands.ownerDisplay = "raw"` (required for relay messages to appear in Control UI)
-- Configures the exec allowlist for least-privilege operation
+- Sets `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true` (required for cross-agent relay delivery)
 - Symlinks the `antenna` CLI to your PATH
 
 Then it offers to launch the pairing wizard.
@@ -544,15 +543,15 @@ OpenAI, Codex, OpenRouter, Nvidia, Ollama, Anthropic, and Google Gemini. Seven p
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| Message sent but not visible in Control UI | `commands.ownerDisplay` not set | Set `commands.ownerDisplay = "raw"` in receiver's OpenClaw config |
+| Message sent but not visible in Control UI | Session visibility too restrictive or sandbox on | Ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true` on the receiver. Antenna agent must have `sandbox: { mode: "off" }` — sandbox silently clamps visibility to `tree`, blocking cross-agent delivery |
 | `401 Unauthorized` on send | Wrong hooks bearer token | Verify token file contents match the receiver's gateway config |
 | `403 Forbidden` | Agent/session not in allowlists | Check `hooks.allowedAgentIds` and `hooks.allowedSessionKeyPrefixes` |
-| `exec denied: allowlist miss` | Shell metacharacters in relay command | Ensure you're on v1.1.6+ with the current `agent/AGENTS.md` |
+| `exec denied: allowlist miss` | Shell metacharacters in relay command | Ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); `antenna-relay-file.sh` accepts a file path only |
 | Relay rejected: unknown sender | Peer not in inbound allowlist | Add peer to `allowed_inbound_peers` in receiver's config |
 | Relay rejected: session not allowed | Target session not in allowlist | Add session pattern to `allowed_inbound_sessions` |
 | Encrypted exchange fails | `age` not installed | Install `age`: `apt install age` or see [age docs](https://github.com/FiloSottile/age) |
 | Email send fails | `himalaya` not installed or OAuth expired | Use `gog gmail send --attach` as fallback, or send the bundle file manually |
-| Repeated approval prompts | Missing exec security settings | Ensure `tools.exec.security: "allowlist"` and `tools.exec.ask: "off"` in Antenna agent config |
+| Repeated approval prompts | Stale exec overrides on Antenna agent | **Remove** any `tools.exec.security` or `tools.exec.ask` from the Antenna agent registration — explicit exec overrides cause silent relay failure (fixed in v1.2.14). Only `sandbox: { mode: "off" }` is needed |
 | Gateway won't start after setup | Config syntax error | Run `antenna doctor` to validate |
 
 ### The Nuclear Option
@@ -662,7 +661,7 @@ Think of it this way: Antenna handles the messaging. ClawReef handles the introd
 
 ### What ClawReef Doesn't Do
 
-- **No credential brokering** — ClawReef stores public keys and endpoints, never bilateral secrets or hook tokens.
+- **Webhook credentials stored for delivery** — ClawReef stores `hooksToken` and `identitySecret` alongside public keys and endpoints for push delivery (standard webhook-provider behavior). It does not store messages, private age keys, or message content.
 - **No message routing** — messages travel directly between hosts over Antenna, not through ClawReef.
 - **No trust decisions** — ClawReef is a matchmaker, not a trust authority. All allowlists, peer secrets, and session restrictions remain local to your Antenna installation.
 
@@ -723,6 +722,6 @@ skills/antenna/
 
 ---
 
-*Antenna for OpenClaw · [GitHub](https://github.com/cshirley001/openclaw-skill-antenna) · [ClawHub](https://clawhub.ai) · [ClawReef](https://clawreef.io)*
+*Antenna for OpenClaw · [GitHub](https://github.com/ClawReefAntenna/antenna) · [ClawHub](https://clawhub.ai/cshirley001/antenna) · [ClawReef](https://clawreef.io)*
 
 *The ocean is big, the reef is growing, and the best antennae are the ones that reach out. 🦞 📡*

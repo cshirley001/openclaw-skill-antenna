@@ -2,6 +2,20 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.18] — 2026-04-13
+
+### Fixed
+- **Docs: removed stale `commands.ownerDisplay` requirement** — confirmed not needed for relay delivery or Control UI visibility; was cargo-cult from restart timing
+- **Docs: removed stale `tools.exec` override guidance** — explicit `tools.exec.security`/`tools.exec.ask` on the Antenna agent causes silent relay failure (see v1.2.14); all docs now warn against setting these
+- **Docs: corrected trust-model claims** — ClawReef stores `hooksToken` and `identitySecret` for push delivery; replaced false "only public metadata" / "never bilateral secrets" copy with honest webhook-provider framing
+- **Docs: fixed install command** — remaining `bash skills/antenna/install.sh` references updated to `bash skills/antenna/bin/antenna.sh setup`
+- **Docs: updated GitHub URLs** — `cshirley001/openclaw-skill-antenna` → `ClawReefAntenna/antenna` across User Guide and static site
+- **Setup script: removed `ownerDisplay` config step** — setup no longer sets `commands.ownerDisplay = "raw"`; renumbered remaining steps
+- **Docs: documented actual config requirements** — `tools.sessions.visibility = "all"`, `tools.agentToAgent.enabled = true`, and `sandbox: { mode: "off" }` are the real requirements for relay operation
+
+### Docs impact
+README, SKILL.md, User Guide, setup script summary output, static site (index.html, user-guide.html)
+
 ## [1.2.17] — 2026-04-12
 ### Fixed
 - Pair wizard once again offers to email bootstrap bundles after creating them, using the existing exchange mail flow

@@ -239,10 +239,11 @@ antenna uninstall [--dry-run] [--purge-skill-dir]   # clean removal
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| Message sent but not visible | `commands.ownerDisplay` not set | Set `commands.ownerDisplay = "raw"` on receiver |
+| Message sent but not visible | Session visibility or sandbox | Ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true`; Antenna agent needs `sandbox: { mode: "off" }` |
 | `401 Unauthorized` | Token mismatch | Verify sender's token matches receiver's `hooks.token` |
 | `403 Forbidden` | Allowlist missing | Check `hooks.allowedAgentIds` includes `"antenna"` |
-| `exec denied: allowlist miss` | Shell metacharacters in command | Ensure v1.1.6+ with current `agent/AGENTS.md` |
+| `exec denied: allowlist miss` | Shell metacharacters in command | Use only simple commands; `antenna-relay-file.sh` accepts a file path only |
+| Repeated approval prompts | Stale exec overrides | **Remove** `tools.exec.security`/`tools.exec.ask` from Antenna agent (v1.2.14+) |
 | Unknown sender rejected | Peer not in inbound allowlist | Add to `allowed_inbound_peers` |
 | Exchange fails | `age` not installed | `apt install age` |
 | Gateway won't start | Config syntax error | Run `antenna doctor` |
@@ -271,7 +272,7 @@ antenna setup                 # start over
 
 ClawReef is optional. Antenna works perfectly fine without it — direct pairing via encrypted exchange is always available. ClawReef just makes discovery easier when you don't already know someone's endpoint.
 
-> **Trust model:** ClawReef stores public keys and endpoints, never bilateral secrets. It's a matchmaker, not a credential broker. All trust decisions happen locally in Antenna.
+> **Trust model:** ClawReef stores endpoints, exchange public keys, and — when you pair with the reef — your hooks token and identity secret so it can deliver invites and verify your identity. This is standard webhook-provider behavior (like giving Stripe your webhook URL and signing secret). ClawReef never stores messages, private age keys, or message content. All peer trust decisions happen locally in Antenna.
 
 ---
 

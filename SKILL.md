@@ -12,7 +12,7 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.17
+  version: 1.2.18
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
@@ -280,7 +280,7 @@ summarize the queue and ask me.
 - **Send invites** — ClawReef delivers them via Antenna to the recipient's default session
 - **Accept & pair** — accepting an invite starts the normal `antenna pair` flow locally
 
-ClawReef stores public keys and endpoints, never bilateral secrets. All trust decisions remain local to Antenna.
+ClawReef stores webhook credentials (`hooksToken`, `identitySecret`) for push delivery alongside public keys and endpoints — standard webhook-provider behavior. It does not store messages, private age keys, or message content. All trust decisions remain local to Antenna.
 
 The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to manual encrypted exchange. Setup also displays ClawReef info after completion.
 
@@ -304,10 +304,9 @@ The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to
 - **Relay rejected**: peer not allowlisted, session not allowlisted, or identity secret mismatch
 - **Encrypted exchange fails immediately**: `age` / `age-keygen` missing
 - **Email send convenience fails**: `himalaya` missing or no suitable account configured
-- **Message sent but not visible**: check `commands.ownerDisplay = "raw"` on the receiver; without it, hook-delivered messages are processed but invisible in Control UI
+- **Message sent but not visible**: ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true` on the receiver; the relay agent uses cross-agent `sessions_send`, which requires both settings. Also ensure `sandbox: { mode: "off" }` on the Antenna agent — sandboxed sessions silently clamp visibility to `tree`, blocking cross-agent delivery
 - **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-file.sh` wrapper accepts a file path only
-- **Model refuses to encode / base64 errors**: this was fixed in v1.1.8 — the model no longer performs any encoding; if you see encoding errors, ensure you are on v1.1.8+ with the updated `agent/AGENTS.md`
-- **Repeated approval prompts**: ensure Antenna agent has `tools.exec.security: "allowlist"`, `tools.exec.ask: "off"`, and `sandbox: { mode: "off" }` in registration
+- **Repeated approval prompts**: ensure Antenna agent has `sandbox: { mode: "off" }` in registration. Do **not** set `tools.exec.security` or `tools.exec.ask` on the Antenna agent — explicit exec overrides cause silent relay failure (fixed in v1.2.14)
 
 ## File Inventory
 
@@ -360,13 +359,13 @@ Notes:
 On each host:
 - agent `antenna` registered in OpenClaw config under `agents` with:
   - `agentDir` and `workspace` both pointing to the Antenna `agent/` directory
-  - `sandbox: { mode: "off" }`
-  - `tools.exec: { security: "allowlist", ask: "off" }`
+  - `sandbox: { mode: "off" }` (required — sandbox silently clamps session visibility, breaking cross-agent relay)
   - restrictive `tools.deny` (block web, browser, image, cron, memory tools)
+  - **Do not** set `tools.exec.security` or `tools.exec.ask` on the Antenna agent — explicit exec overrides cause silent relay failure (see v1.2.14 changelog)
 - `hooks.allowedAgentIds` includes `"antenna"`
 - `hooks.allowedSessionKeyPrefixes` includes `"hook:antenna"`
-- `commands.ownerDisplay` set to `"raw"` (required for relay messages to appear in Control UI)
-- Exec allowlist entries for Antenna agent: `/usr/bin/bash`, `/usr/bin/echo`, `/usr/bin/jq`, `/usr/bin/cat`
+- `tools.sessions.visibility` set to `"all"` (required for cross-agent `sessions_send`)
+- `tools.agentToAgent.enabled` set to `true`
 
 ## Support
 
