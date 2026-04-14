@@ -7,7 +7,7 @@
 #   antenna-send.sh <peer> [options] --stdin
 #
 # Options:
-#   --session <key>     Target session on recipient (default: main)
+#   --session <key>     Target session on recipient (full key, e.g. agent:betty:main)
 #   --subject <text>    Optional subject line
 #   --reply-to <url>    Override reply URL
 #   --dry-run           Print envelope and POST payload without sending
@@ -125,7 +125,11 @@ TOKEN=$(cat "$TOKEN_FILE")
 # ── Load config defaults ────────────────────────────────────────────────────
 
 MAX_LEN=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
-DEFAULT_SESSION=$(jq -r '.default_target_session // "main"' "$CONFIG_FILE" 2>/dev/null || echo "main")
+DEFAULT_SESSION=$(jq -r '.default_target_session // empty' "$CONFIG_FILE" 2>/dev/null || true)
+if [[ -z "$DEFAULT_SESSION" ]]; then
+  LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  DEFAULT_SESSION="agent:${LOCAL_AGENT}:main"
+fi
 TARGET_SESSION="${SESSION:-$DEFAULT_SESSION}"
 
 # Check allowed outbound peers

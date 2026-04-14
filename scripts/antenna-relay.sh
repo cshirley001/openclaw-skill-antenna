@@ -164,8 +164,12 @@ if [[ -z "$FROM" ]]; then
 fi
 
 if [[ -z "$TARGET_SESSION" ]]; then
-  # Use default from config
-  TARGET_SESSION=$(jq -r '.default_target_session // "main"' "$CONFIG_FILE" 2>/dev/null || echo "main")
+  # Use default from config; if absent, build full key for main session
+  TARGET_SESSION=$(jq -r '.default_target_session // empty' "$CONFIG_FILE" 2>/dev/null || true)
+  if [[ -z "$TARGET_SESSION" ]]; then
+    LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+    TARGET_SESSION="agent:${LOCAL_AGENT}:main"
+  fi
 fi
 
 if [[ -z "$TIMESTAMP" ]]; then
@@ -325,13 +329,9 @@ if [[ "$INBOX_ENABLED" == "true" ]]; then
   ' "$CONFIG_FILE" 2>/dev/null || echo "no")
   
   if [[ "$AUTO_APPROVED" != "yes" ]]; then
-    # Resolve target session early for queueing
-    if [[ "$TARGET_SESSION" == "main" ]]; then
-      LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
-      RESOLVED_SESSION="agent:${LOCAL_AGENT}:main"
-    else
-      RESOLVED_SESSION="$TARGET_SESSION"
-    fi
+    # Queued messages bypass the session allowlist check below.
+    # Session target is validated at delivery time via sessions_send.
+    RESOLVED_SESSION="$TARGET_SESSION"
     
     DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
     
@@ -390,26 +390,17 @@ ${BODY}"
 fi
 
 # ── Validate target session against allowlist ───────────────────────────────
+# Full session keys only. Exact match. No expansion — senders must use full keys.
 
-# Load allowed session prefixes from config (default: only antenna-namespaced sessions + main)
 ALLOWED_SESSIONS=$(jq -r '
-  .allowed_inbound_sessions // ["main", "antenna"] | .[]
+  .allowed_inbound_sessions // [] | .[]
 ' "$CONFIG_FILE" 2>/dev/null)
 
 session_allowed() {
   local target="$1"
   while IFS= read -r pattern; do
     [[ -z "$pattern" ]] && continue
-    # Exact match on full target
     [[ "$target" == "$pattern" ]] && return 0
-    # Prefix match on full target (e.g., "antenna" matches "antennatest1")
-    [[ "$target" == "$pattern"* ]] && return 0
-    # Segment match: check each colon-separated segment of the target
-    # e.g., pattern "antenna" matches "agent:antenna:test" because "antenna" is a segment
-    IFS=':' read -ra segments <<< "$target"
-    for seg in "${segments[@]}"; do
-      [[ "$seg" == "$pattern" || "$seg" == "$pattern"* ]] && return 0
-    done
   done <<< "$ALLOWED_SESSIONS"
   return 1
 }
@@ -418,13 +409,6 @@ if ! session_allowed "$TARGET_SESSION"; then
   json_reject "Session target '$TARGET_SESSION' not in allowed_inbound_sessions" "$FROM"
   log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:REJECTED (session not allowed)"
   exit 0
-fi
-
-# ── Resolve target session ──────────────────────────────────────────────────
-
-if [[ "$TARGET_SESSION" == "main" ]]; then
-  LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
-  TARGET_SESSION="agent:${LOCAL_AGENT}:main"
 fi
 
 # ── Format delivery message ─────────────────────────────────────────────────

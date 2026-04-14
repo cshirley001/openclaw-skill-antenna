@@ -2,6 +2,26 @@
 
 All notable changes to the Antenna skill are documented here.
 
+## [1.2.19] — 2026-04-13
+
+### Added
+- **`antenna sessions` subcommand** — CLI management of `allowed_inbound_sessions`:
+  - `antenna sessions list` — show current allowed inbound session targets
+  - `antenna sessions add <name> [<name>...]` — add session target(s) with duplicate detection
+  - `antenna sessions remove <name> [<name>...]` — remove session target(s) with core-session protection (`main`/`antenna` require `--force`)
+  - Batch add/remove supported; counters for added/skipped/removed/blocked
+
+### Changed
+- **Full session keys everywhere** — all session references use full keys (`agent:betty:main` instead of `main`). Config fields `default_target_session` and `allowed_inbound_sessions` both store full keys. Setup generates them from `local_agent_id`. No expansion in the relay — bare names are rejected.
+- Relay allowlist validation simplified to exact-match only (removed prefix, segment matching, and bare-name expansion)
+- CLI `sessions add/remove` auto-expands bare names to full keys for convenience, with visible `→ Expanded` feedback
+- `antenna-send.sh` `--session` flag now expects full session keys
+
+### Docs impact
+SKILL.md (session allowlist section rewritten for full-key convention, config example updated, version bump to 1.2.19), CHANGELOG.md, USER-GUIDE.md (envelope example, local_agent_id description, troubleshooting), antenna-config.example.json, antenna-send.sh help text.
+
+**Note:** FSD (`ANTENNA-RELAY-FSD.md`) still references bare `main` shorthand and old matching semantics in several places. Deferred to a dedicated FSD revision pass.
+
 ## [1.2.18] — 2026-04-13
 
 ### Fixed

@@ -177,7 +177,7 @@ Messages travel in a plain-text envelope:
 [ANTENNA_RELAY]
 from: myhost
 reply_to: https://myhost.example.com/hooks/agent
-target_session: main
+target_session: agent:lobster:main
 timestamp: 2026-04-09T20:00:00Z
 subject: Quick question
 
@@ -254,7 +254,7 @@ The reachable HTTPS URL where your OpenClaw gateway accepts webhook requests. Ta
 
 ### Step 3: Agent ID
 
-Your primary agent's ID (e.g., `lobster`, `main`). This is used to resolve `target_session: main` into the correct session key on your host.
+Your primary agent's ID (e.g., `lobster`, `main`). This is used in full session keys like `agent:lobster:main`. The relay requires full session keys — bare names are rejected.
 
 ### Step 4: Relay Model
 
@@ -548,7 +548,7 @@ OpenAI, Codex, OpenRouter, Nvidia, Ollama, Anthropic, and Google Gemini. Seven p
 | `403 Forbidden` | Agent/session not in allowlists | Check `hooks.allowedAgentIds` and `hooks.allowedSessionKeyPrefixes` |
 | `exec denied: allowlist miss` | Shell metacharacters in relay command | Ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); `antenna-relay-file.sh` accepts a file path only |
 | Relay rejected: unknown sender | Peer not in inbound allowlist | Add peer to `allowed_inbound_peers` in receiver's config |
-| Relay rejected: session not allowed | Target session not in allowlist | Add session pattern to `allowed_inbound_sessions` |
+| Relay rejected: session not allowed | Target session not in allowlist | Add full session key to `allowed_inbound_sessions` (e.g. `antenna sessions add "agent:betty:antv3"`) |
 | Encrypted exchange fails | `age` not installed | Install `age`: `apt install age` or see [age docs](https://github.com/FiloSottile/age) |
 | Email send fails | `himalaya` not installed or OAuth expired | Use `gog gmail send --attach` as fallback, or send the bundle file manually |
 | Repeated approval prompts | Stale exec overrides on Antenna agent | **Remove** any `tools.exec.security` or `tools.exec.ask` from the Antenna agent registration — explicit exec overrides cause silent relay failure (fixed in v1.2.14). Only `sandbox: { mode: "off" }` is needed |

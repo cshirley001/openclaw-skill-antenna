@@ -12,7 +12,7 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.18
+  version: 1.2.19
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
@@ -92,7 +92,7 @@ Use `antenna setup` for normal installation; use the `*.example.json` files for 
   "log_verbose": false,
   "mcs_enabled": false,
   "mcs_model": "sonnet",
-  "allowed_inbound_sessions": ["main", "antenna"],
+  "allowed_inbound_sessions": ["agent:betty:main", "agent:betty:antenna"],
   "allowed_inbound_peers": ["<peer-a>", "<peer-b>"],
   "allowed_outbound_peers": ["<peer-a>", "<peer-b>"],
   "rate_limit": {
@@ -106,7 +106,7 @@ Key fields:
 - `relay_agent_model` — use a full provider/model ID, not a local alias
 - `local_agent_id` — used to resolve `main` → `agent:<id>:main`
 - `install_path` — absolute path to this skill directory
-- `allowed_inbound_sessions` — inbound delivery allowlist
+- `allowed_inbound_sessions` — inbound delivery allowlist (full session keys, e.g. `agent:betty:main`)
 - `allowed_inbound_peers` / `allowed_outbound_peers` — peer allowlists
 - `rate_limit.*` — inbound abuse controls
 
@@ -197,6 +197,22 @@ Notes:
 - Optional direct-send requires `himalaya`
 - Email is convenience transport only, not part of the trust model
 - Import shows a preview and asks before allowlist changes unless `--yes` is used
+
+### Session allowlist management
+
+```bash
+antenna sessions list                             # Show allowed inbound session targets
+antenna sessions add antv3                        # Bare name → auto-expanded to agent:<local>:antv3
+antenna sessions add "agent:marie:lab1"            # Cross-agent: use full session key
+antenna sessions remove antv3                     # Remove (bare names are expanded)
+antenna sessions remove "agent:betty:main" --force # Core sessions need --force
+```
+
+Controls which session targets inbound messages can request via `allowed_inbound_sessions` in `antenna-config.json`.
+
+**Convention: full session keys everywhere.** The allowlist stores full keys like `agent:betty:main` and `agent:marie:lab1`. The relay requires full keys from senders — bare names are rejected. The CLI auto-expands bare names to `agent:<local_agent>:<name>` for convenience when adding/removing, but the stored value is always the full key.
+
+Core sessions (`agent:<local>:main`, `agent:<local>:antenna`) are protected from removal unless `--force` is used. Supports batch add/remove.
 
 ### Health and status
 

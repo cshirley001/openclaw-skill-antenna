@@ -538,7 +538,7 @@ jq -n \
   --argjson inbox_auto "$INBOX_AUTO_JSON" \
   '{
     max_message_length: 10000,
-    default_target_session: "main",
+    default_target_session: ("agent:" + $agent + ":main"),
     relay_agent_id: "antenna",
     relay_agent_model: $model,
     local_agent_id: $agent,
@@ -556,7 +556,7 @@ jq -n \
     inbox_enabled: $inbox_enabled,
     inbox_auto_approve_peers: $inbox_auto,
     inbox_queue_path: "antenna-inbox.json",
-    allowed_inbound_sessions: ["main", "antenna"],
+    allowed_inbound_sessions: [("agent:" + $agent + ":main"), ("agent:" + $agent + ":antenna")],
     allowed_inbound_peers: [$host],
     allowed_outbound_peers: [$host]
   }' > "$CONFIG_FILE"

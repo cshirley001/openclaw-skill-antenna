@@ -95,6 +95,10 @@ Usage:
   antenna inbox drain [--execute]            Deliver approved, remove denied
   antenna inbox clear                        Remove all processed messages
 
+  antenna sessions list                      Show allowed inbound session targets
+  antenna sessions add <name> [<name>...]    Add session target(s) to the allowlist
+  antenna sessions remove <name> [<name>...] Remove session target(s) (core sessions need --force)
+
   antenna config show                        Show current configuration
   antenna config set <key> <value>           Update a config value (syncs relay_agent_model to gateway)
 
@@ -428,6 +432,141 @@ _sync_relay_model_to_gateway() {
   fi
 }
 
+cmd_sessions() {
+  local subcmd="${1:-list}"
+  shift || true
+
+  local key="allowed_inbound_sessions"
+  local local_agent
+  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  local defaults="[\"agent:${local_agent}:main\",\"agent:${local_agent}:antenna\"]"
+
+  # Normalize a session name to a full key (expand bare names)
+  _normalize_session() {
+    local name="$1"
+    if [[ "$name" == *:* ]]; then
+      echo "$name"
+    else
+      echo "agent:${local_agent}:${name}"
+    fi
+  }
+
+  case "$subcmd" in
+    list|ls)
+      echo "Allowed inbound sessions:"
+      echo ""
+      jq -r --argjson d "$defaults" '.[$key] // $d | to_entries[] | "  \(.value)"' --arg key "$key" "$CONFIG_FILE"
+      local count
+      count=$(jq -r --argjson d "$defaults" --arg key "$key" '.[$key] // $d | length' "$CONFIG_FILE")
+      echo ""
+      echo "($count session target(s) allowed)"
+      ;;
+
+    add)
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: antenna sessions add <name> [<name>...]" >&2
+        exit 1
+      fi
+      local added=0 skipped=0
+      for raw_name in "$@"; do
+        local name
+        name=$(_normalize_session "$raw_name")
+        if [[ "$raw_name" != "$name" ]]; then
+          echo "  →  Expanded '$raw_name' → '$name'"
+        fi
+        local already
+        already=$(jq -r --argjson d "$defaults" --arg key "$key" --arg n "$name" \
+          '(.[$key] // $d) | if (index($n) | not) then "no" else "yes" end' "$CONFIG_FILE")
+        if [[ "$already" == "yes" ]]; then
+          echo "  ⚠  '$name' already in allowlist — skipped"
+          skipped=$((skipped + 1))
+          continue
+        fi
+        local tmp
+        tmp=$(mktemp)
+        jq --argjson d "$defaults" --arg key "$key" --arg n "$name" \
+          '.[$key] = ((.[$key] // $d) + [$n])' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+        echo "  ✓  Added '$name'"
+        added=$((added + 1))
+      done
+      echo ""
+      echo "Added $added, skipped $skipped."
+      if [[ $added -gt 0 ]]; then
+        echo ""
+        echo "Current allowlist:"
+        jq -r --argjson d "$defaults" --arg key "$key" '.[$key] // $d | .[]' "$CONFIG_FILE" | sed 's/^/  /'
+      fi
+      ;;
+
+    remove|rm)
+      if [[ $# -eq 0 ]]; then
+        echo "Usage: antenna sessions remove <name> [<name>...]" >&2
+        exit 1
+      fi
+      local removed=0 blocked=0 notfound=0
+      local protected=("agent:${local_agent}:main" "agent:${local_agent}:antenna")
+      local force=false
+      # Check for --force flag
+      local names=()
+      for arg in "$@"; do
+        if [[ "$arg" == "--force" || "$arg" == "-f" ]]; then
+          force=true
+        else
+          names+=("$arg")
+        fi
+      done
+
+      for raw_name in "${names[@]}"; do
+        local name
+        name=$(_normalize_session "$raw_name")
+        if [[ "$raw_name" != "$name" ]]; then
+          echo "  →  Expanded '$raw_name' → '$name'"
+        fi
+        # Check if it exists
+        local exists
+        exists=$(jq -r --argjson d "$defaults" --arg key "$key" --arg n "$name" \
+          '(.[$key] // $d) | if (index($n) | not) then "no" else "yes" end' "$CONFIG_FILE")
+        if [[ "$exists" == "no" ]]; then
+          echo "  ⚠  '$name' not in allowlist — skipped"
+          notfound=$((notfound + 1))
+          continue
+        fi
+
+        # Protect core sessions unless --force
+        if [[ "$force" != true ]]; then
+          for p in "${protected[@]}"; do
+            if [[ "$name" == "$p" ]]; then
+              echo "  ⛔ '$name' is a core session — use --force to remove"
+              blocked=$((blocked + 1))
+              continue 2
+            fi
+          done
+        fi
+
+        local tmp
+        tmp=$(mktemp)
+        jq --argjson d "$defaults" --arg key "$key" --arg n "$name" \
+          '.[$key] = ((.[$key] // $d) | map(select(. != $n)))' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+        echo "  ✓  Removed '$name'"
+        removed=$((removed + 1))
+      done
+      echo ""
+      echo "Removed $removed, blocked $blocked, not found $notfound."
+      if [[ $removed -gt 0 ]]; then
+        echo ""
+        echo "Current allowlist:"
+        jq -r --argjson d "$defaults" --arg key "$key" '.[$key] // $d | .[]' "$CONFIG_FILE" | sed 's/^/  /'
+      fi
+      ;;
+
+    *)
+      echo "Unknown sessions subcommand: $subcmd" >&2
+      echo "Usage: antenna sessions list|add|remove" >&2
+      exit 1
+      ;;
+  esac
+}
+
 cmd_config() {
   local subcmd="${1:-show}"
   shift || true
@@ -721,6 +860,7 @@ case "$COMMAND" in
   msg)      cmd_msg "$@" ;;
   peers)    cmd_peers "$@" ;;
   inbox)    cmd_inbox "$@" ;;
+  sessions) cmd_sessions "$@" ;;
   config)   cmd_config "$@" ;;
   model)    cmd_model "$@" ;;
   log)      cmd_log "$@" ;;
