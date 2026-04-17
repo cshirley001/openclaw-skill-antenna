@@ -249,10 +249,11 @@ fi
 # ── Rate limiting ────────────────────────────────────────────────────────────
 
 RATE_LIMIT_FILE="$SKILL_DIR/antenna-ratelimit.json"
+RATE_LIMIT_LOCK_FILE="${RATE_LIMIT_FILE}.lock"
 PEER_LIMIT=$(jq -r '.rate_limit.per_peer_per_minute // 10' "$CONFIG_FILE" 2>/dev/null || echo "10")
 GLOBAL_LIMIT=$(jq -r '.rate_limit.global_per_minute // 30' "$CONFIG_FILE" 2>/dev/null || echo "30")
 
-# Initialize state file if missing
+mkdir -p "$(dirname "$RATE_LIMIT_FILE")"
 if [[ ! -f "$RATE_LIMIT_FILE" ]]; then
   echo '{}' > "$RATE_LIMIT_FILE"
 fi
@@ -260,32 +261,41 @@ fi
 NOW_EPOCH=$(date +%s)
 WINDOW_START=$((NOW_EPOCH - 60))
 
-# Read current state, prune entries older than 60s, count per-peer and global
-RATE_CHECK=$(jq -r --arg from "$FROM" --argjson now "$NOW_EPOCH" --argjson cutoff "$WINDOW_START" \
-  --argjson peer_limit "$PEER_LIMIT" --argjson global_limit "$GLOBAL_LIMIT" '
-  # Prune all peers: keep only timestamps within the window
-  . as $state |
-  ([$state | to_entries[] | {key, value: [.value[] | select(. > $cutoff)]}] | from_entries) as $pruned |
+rate_limit_check_and_record() {
+  local result tmp_file
+  tmp_file="${RATE_LIMIT_FILE}.tmp.$$"
 
-  # Count for this peer
-  ($pruned[$from] // [] | length) as $peer_count |
+  result=$(jq -r --arg from "$FROM" --argjson now "$NOW_EPOCH" --argjson cutoff "$WINDOW_START" \
+    --argjson peer_limit "$PEER_LIMIT" --argjson global_limit "$GLOBAL_LIMIT" '
+    . as $state |
+    ([$state | to_entries[] | {key, value: [.value[] | select(. > $cutoff)]}] | from_entries) as $pruned |
+    ($pruned[$from] // [] | length) as $peer_count |
+    ([($pruned | to_entries[] | .value | length)] | add // 0) as $global_count |
+    if $peer_count >= $peer_limit then
+      "peer_limited|\($peer_count)|\($global_count)"
+    elif $global_count >= $global_limit then
+      "global_limited|\($peer_count)|\($global_count)"
+    else
+      ($pruned | .[$from] = ((.[$from] // []) + [$now])) as $updated |
+      ($updated | tostring) as $state_json |
+      "ok|\($peer_count)|\($global_count)|\($state_json)"
+    end
+  ' "$RATE_LIMIT_FILE" 2>/dev/null || echo "ok|0|0|{}")
 
-  # Count global (all peers)
-  ([($pruned | to_entries[] | .value | length)] | add // 0) as $global_count |
+  RATE_VERDICT=$(echo "$result" | cut -d'|' -f1)
+  RATE_PEER_COUNT=$(echo "$result" | cut -d'|' -f2)
+  RATE_GLOBAL_COUNT=$(echo "$result" | cut -d'|' -f3)
 
-  # Decide
-  if $peer_count >= $peer_limit then
-    "peer_limited|\($peer_count)|\($global_count)"
-  elif $global_count >= $global_limit then
-    "global_limited|\($peer_count)|\($global_count)"
-  else
-    "ok|\($peer_count)|\($global_count)"
-  end
-' "$RATE_LIMIT_FILE" 2>/dev/null || echo "ok|0|0")
+  if [[ "$RATE_VERDICT" == "ok" ]]; then
+    RATE_UPDATED_STATE=$(echo "$result" | cut -d'|' -f4-)
+    printf '%s\n' "$RATE_UPDATED_STATE" > "$tmp_file"
+    mv "$tmp_file" "$RATE_LIMIT_FILE"
+  fi
+}
 
-RATE_VERDICT=$(echo "$RATE_CHECK" | cut -d'|' -f1)
-RATE_PEER_COUNT=$(echo "$RATE_CHECK" | cut -d'|' -f2)
-RATE_GLOBAL_COUNT=$(echo "$RATE_CHECK" | cut -d'|' -f3)
+exec 8>"$RATE_LIMIT_LOCK_FILE"
+flock -x 8
+rate_limit_check_and_record
 
 if [[ "$RATE_VERDICT" == "peer_limited" ]]; then
   json_reject "Rate limited: peer '$FROM' exceeded $PEER_LIMIT messages/minute ($RATE_PEER_COUNT in window)" "$FROM"
@@ -298,14 +308,6 @@ if [[ "$RATE_VERDICT" == "global_limited" ]]; then
   log_entry "INBOUND  | from:$FROM | status:REJECTED (rate limited: global $RATE_GLOBAL_COUNT/$GLOBAL_LIMIT per min)"
   exit 0
 fi
-
-# Record this message in the rate limit state
-jq --arg from "$FROM" --argjson now "$NOW_EPOCH" --argjson cutoff "$WINDOW_START" '
-  # Prune old entries and append current timestamp
-  . as $state |
-  ([$state | to_entries[] | {key, value: [.value[] | select(. > $cutoff)]}] | from_entries) as $pruned |
-  $pruned | .[$from] = ((.[$from] // []) + [$now])
-' "$RATE_LIMIT_FILE" > "${RATE_LIMIT_FILE}.tmp" 2>/dev/null && mv "${RATE_LIMIT_FILE}.tmp" "$RATE_LIMIT_FILE"
 
 # ── Validate message length ─────────────────────────────────────────────────
 

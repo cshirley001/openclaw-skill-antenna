@@ -148,7 +148,7 @@ ensure_core_files() {
 }
 
 self_id() {
-  jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || true
+  jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || true
 }
 
 peer_exists() {

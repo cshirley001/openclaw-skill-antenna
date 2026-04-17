@@ -67,7 +67,7 @@ for cmd in jq curl; do
   fi
 done
 
-SELF_PEER=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_PEER=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
 if [[ -z "$SELF_PEER" ]]; then
   echo "ERROR: No self-peer found in $PEERS_FILE (need an entry with \"self\": true)" >&2
   exit 1

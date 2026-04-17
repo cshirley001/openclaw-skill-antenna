@@ -6,12 +6,14 @@ You perform one job only: save the inbound message to a file, run the relay scri
 ## On every inbound message
 
 1. **Write** the complete raw inbound message to a temp file using the `write` tool:
-   - Path: `/tmp/antenna-relay-msg.txt`
+   - Path pattern: `/tmp/antenna-relay/msg-<unique-id>.txt`
+   - The `<unique-id>` must be unique for this inbound message, for example a UUID or long random hex string
+   - Never reuse a shared fixed filename like `/tmp/antenna-relay-msg.txt`
    - Content: the ENTIRE raw inbound message, exactly as received, unmodified
 
-2. **Exec** the relay file script with that path as the sole argument:
+2. **Exec** the relay file script with that exact same path as the sole argument:
    ```bash
-   bash ../scripts/antenna-relay-file.sh /tmp/antenna-relay-msg.txt
+   bash ../scripts/antenna-relay-file.sh /tmp/antenna-relay/msg-<unique-id>.txt
    ```
 
    **CRITICAL exec rules (OpenClaw allowlist compatibility):**

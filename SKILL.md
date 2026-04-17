@@ -12,11 +12,11 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.2.19
+  version: 1.2.20
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.2.17)
+# Antenna — Inter-Host OpenClaw Messaging (v1.2.20)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -81,7 +81,7 @@ Use `antenna setup` for normal installation; use the `*.example.json` files for 
 ```json
 {
   "max_message_length": 10000,
-  "default_target_session": "main",
+  "default_target_session": "agent:betty:main",
   "relay_agent_id": "antenna",
   "relay_agent_model": "openai/gpt-5.4",
   "local_agent_id": "<your-agent-id>",
@@ -104,7 +104,7 @@ Use `antenna setup` for normal installation; use the `*.example.json` files for 
 
 Key fields:
 - `relay_agent_model` — use a full provider/model ID, not a local alias
-- `local_agent_id` — used to resolve `main` → `agent:<id>:main`
+- `local_agent_id` — used by local CLI conveniences when expanding bare names to full session keys like `agent:<id>:main`
 - `install_path` — absolute path to this skill directory
 - `allowed_inbound_sessions` — inbound delivery allowlist (full session keys, e.g. `agent:betty:main`)
 - `allowed_inbound_peers` / `allowed_outbound_peers` — peer allowlists

@@ -34,6 +34,32 @@ _fix_perms
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
+# ── Peer-shape validation helpers ────────────────────────────────────────────
+# Only iterate entries that look like real peers (object with a .url string).
+# This prevents legacy/malformed nested objects from polluting peer lists.
+
+PEER_FILTER='select((.value | type) == "object" and (.value.url? | type) == "string")'
+
+valid_peer_ids() {
+  jq -r "to_entries[] | $PEER_FILTER | .key" "$PEERS_FILE" 2>/dev/null
+}
+
+remote_peer_ids() {
+  jq -r "to_entries[] | $PEER_FILTER | select(.value.self != true) | .key" "$PEERS_FILE" 2>/dev/null
+}
+
+self_peer_id() {
+  jq -r "to_entries[] | $PEER_FILTER | select(.value.self == true) | .key" "$PEERS_FILE" 2>/dev/null | head -n 1
+}
+
+self_peer_url() {
+  jq -r "to_entries[] | $PEER_FILTER | select(.value.self == true) | .value.url" "$PEERS_FILE" 2>/dev/null | head -n 1
+}
+
+invalid_peer_keys() {
+  jq -r 'to_entries[] | select((.value | type) != "object" or (.value.url? | type) != "string") | .key' "$PEERS_FILE" 2>/dev/null
+}
+
 # ── Setup guard ──────────────────────────────────────────────────────────────
 # If config doesn't exist yet, only setup/help/--help/-h are allowed.
 _peek_command="${1:-}"
@@ -165,7 +191,7 @@ cmd_msg() {
   if [[ -z "$peer" ]]; then
     # If only one remote peer, use it; otherwise list and ask
     local remote_peers
-    remote_peers=$(jq -r 'to_entries[] | select(.value.self != true) | .key' "$PEERS_FILE" 2>/dev/null)
+    remote_peers=$(remote_peer_ids)
     local peer_count
     peer_count=$(echo "$remote_peers" | grep -c '.' || echo "0")
 
@@ -256,7 +282,17 @@ cmd_peers() {
     list)
       echo "Known peers:"
       echo ""
-      jq -r 'to_entries[] | "  \(.key)\(if .value.self then " (self)" else "" end)\n    URL:   \(.value.url)\n    Agent: \(.value.agentId // "antenna")\n    Name:  \(.value.display_name // "—")\n    Exchange key: \(if .value.exchange_public_key then "set" else "—" end)\n"' "$PEERS_FILE"
+      local peer_rows invalid_keys
+      peer_rows=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string") | "  \(.key)\(if .value.self then " (self)" else "" end)\n    URL:   \(.value.url)\n    Agent: \(.value.agentId // "antenna")\n    Name:  \(.value.display_name // "—")\n    Exchange key: \(if .value.exchange_public_key then "set" else "—" end)\n"' "$PEERS_FILE" 2>/dev/null)
+      if [[ -n "$peer_rows" ]]; then
+        printf '%s\n' "$peer_rows"
+      else
+        echo "  (none)"
+      fi
+      invalid_keys=$(invalid_peer_keys | tr '\n' ',' | sed 's/,$//')
+      if [[ -n "$invalid_keys" ]]; then
+        echo "Ignored malformed registry entries: $invalid_keys"
+      fi
       ;;
 
     add)
@@ -682,13 +718,15 @@ cmd_status() {
 
   # Self identity
   local self_id self_url
-  self_id=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "unknown")
-  self_url=$(jq -r 'to_entries[] | select(.value.self == true) | .value.url // "—"' "$PEERS_FILE" 2>/dev/null || echo "—")
+  self_id=$(self_peer_id)
+  self_url=$(self_peer_url)
+  [[ -n "$self_id" ]] || self_id="unknown"
+  [[ -n "$self_url" ]] || self_url="—"
   echo "Local host: $self_id ($self_url)"
 
   # Peer count
   local peer_count
-  peer_count=$(jq 'to_entries | map(select(.value.self != true)) | length' "$PEERS_FILE" 2>/dev/null || echo "0")
+  peer_count=$(jq '[to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and (.value.self != true))] | length' "$PEERS_FILE" 2>/dev/null || echo "0")
   echo "Remote peers: $peer_count"
 
   # Config summary
@@ -707,9 +745,16 @@ cmd_status() {
   echo "Rate limit: ${rl_peer}/min per peer, ${rl_global}/min global"
 
   # Session allowlist
-  local sessions
-  sessions=$(jq -r '.allowed_inbound_sessions // ["main","antenna"] | join(", ")' "$CONFIG_FILE" 2>/dev/null || echo "main, antenna")
+  local sessions local_agent
+  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  sessions=$(jq -r --arg main "agent:'"$local_agent"':main" --arg antenna "agent:'"$local_agent"':antenna" '.allowed_inbound_sessions // [$main,$antenna] | join(", ")' "$CONFIG_FILE" 2>/dev/null || echo "agent:${local_agent}:main, agent:${local_agent}:antenna")
   echo "Session allowlist: $sessions"
+
+  local invalid_keys
+  invalid_keys=$(invalid_peer_keys | tr '\n' ',' | sed 's/,$//')
+  if [[ -n "$invalid_keys" ]]; then
+    echo "Registry hygiene: ignoring malformed entries: $invalid_keys"
+  fi
 
   local exchange_pub_file exchange_key_file exchange_pub_status
   exchange_key_file="$SKILL_DIR/secrets/antenna-exchange.agekey"
@@ -802,7 +847,7 @@ cmd_status() {
       echo "  ⚠  $peer_id: no exchange public key recorded (encrypted Layer A bootstrap not ready)"
       warnings=$((warnings + 1))
     fi
-  done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
+  done < <(valid_peer_ids)
 
   if [[ -f "$exchange_key_file" ]]; then
     local ek_perms

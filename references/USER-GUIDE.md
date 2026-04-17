@@ -2,7 +2,7 @@
 
 **Cross-host messaging for OpenClaw — your agents, their agents, any session, any host.**
 
-*Version 1.2.18 · An AgentSkill from the OpenClaw community*
+*Version 1.2.20 · An AgentSkill from the OpenClaw community*
 
 ---
 
@@ -159,7 +159,7 @@ antenna-send.sh                    POST /hooks/agent
                                               │  1. write message │
                                               │     to temp file  │
                                               │  2. exec relay    │
-                                              │     script        │
+                                              │     file script   │
                                               │  3. sessions_send │
                                               │     (if valid)    │
                                               └────────┬──────────┘
@@ -254,7 +254,7 @@ The reachable HTTPS URL where your OpenClaw gateway accepts webhook requests. Ta
 
 ### Step 3: Agent ID
 
-Your primary agent's ID (e.g., `lobster`, `main`). This is used in full session keys like `agent:lobster:main`. The relay requires full session keys — bare names are rejected.
+Your primary agent's ID (e.g., `lobster`, `betty`). This is used in full session keys like `agent:lobster:main`. The relay requires full session keys from senders — bare names are rejected. Local CLI conveniences may still expand bare names to full keys when you manage your own allowlist.
 
 ### Step 4: Relay Model
 

@@ -17,6 +17,9 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 
+# Peer-shape filter: only iterate entries that are objects with a .url string
+PEER_JQ_KEYS='to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string") | .key'
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -349,7 +352,7 @@ if [[ -f "$PEERS_FILE" ]]; then
         hint "Run: antenna setup --force (or add peer_secret_file to your self-peer entry)"
       fi
     fi
-  done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
+  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
 else
   warn "Cannot check secrets — no peers file"
 fi
@@ -385,7 +388,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     else
       warn "$peer_id ($peer_url): responded with HTTP $http_code"
     fi
-  done < <(jq -r 'keys[]' "$PEERS_FILE" 2>/dev/null)
+  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
 else
   warn "Cannot check connectivity — no peers file"
 fi

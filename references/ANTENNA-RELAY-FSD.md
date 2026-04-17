@@ -1,9 +1,9 @@
 # Antenna Relay Protocol — Functional Specification
 
-**Version:** 1.0.10  
+**Version:** 1.0.10 (historical reference)  
 **Date:** 2026-04-01  
 **Author:** Antenna Contributors  
-**Status:** v1.0.10 — stable relay baseline plus Layer A encrypted bootstrap exchange
+**Status:** historical baseline reference; parts of this document are superseded by the current 1.2.19-era relay contract and Apr 17 hardening work
 
 **Companion docs:**
 - `SECRET-EXCHANGE-OPTIONS.md` — secret-exchange layers and tradeoffs
@@ -86,7 +86,7 @@ The hook message body contains a structured envelope wrapped in markers.
 [ANTENNA_RELAY]
 from: <sender-peer-id>
 reply_to: https://<sender-tailscale-hostname>/hooks/agent
-target_session: main
+target_session: agent:<local_agent_id>:main
 timestamp: 2026-03-28T22:20:00Z
 subject: NVIDIA config sync
 
@@ -346,7 +346,7 @@ Two possible paths. Two possible tool calls. Zero ambiguity. Any lightweight mod
 ```json
 {
   "max_message_length": 10000,
-  "default_target_session": "main",
+  "default_target_session": "agent:<local_agent_id>:main",
   "relay_agent_id": "antenna",
   "relay_agent_model": "openai/gpt-5.4",
   "note": "Use a full provider/model ID, not a local alias, for portability",
@@ -728,7 +728,7 @@ Decomposed three-tier tester that evaluates relay agent model compatibility with
 | A.2 | No envelope markers | `status:malformed` |
 | A.3 | Missing `from` header | `action:reject` |
 | A.4 | Unknown peer | `action:reject` |
-| A.5 | `target_session: main` | `sessionKey` = `agent:<local_agent_id>:main` |
+| A.5 | Historical note: `target_session: main` shorthand | Superseded by current full-session-key relay contract; use `agent:<local_agent_id>:main` |
 | A.6 | Oversized body (>`max_message_length`) | `action:reject` |
 | A.7 | Missing closing marker | `status:malformed` |
 | A.8 | `user` header present | Delivery message includes user name |
@@ -738,7 +738,7 @@ Decomposed three-tier tester that evaluates relay agent model compatibility with
 | # | Check | Pass condition |
 |---|-------|----------------|
 | B.1 | API call succeeds | HTTP 200 |
-| B.2 | First tool call is `exec` | `function.name == "exec"` |
+| B.2 | Historical note: this older spec expected `exec` first | Superseded in current relay-agent contract, which uses `write` first and validates continuation separately |
 | B.3 | Command references relay script | Contains `antenna-relay` |
 | B.4 | Command includes envelope | Contains `ANTENNA_RELAY` |
 

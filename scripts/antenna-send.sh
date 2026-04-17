@@ -153,8 +153,8 @@ fi
 # ── Build sender identity ───────────────────────────────────────────────────
 
 # Find the local peer entry (self: true)
-SELF_ID=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
-SELF_URL=$(jq -r 'to_entries[] | select(.value.self == true) | .value.url // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_ID=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_URL=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .value.url // empty' "$PEERS_FILE" 2>/dev/null || echo "")
 
 if [[ -z "$SELF_ID" ]]; then
   SELF_ID=$(hostname | tr '[:upper:]' '[:lower:]')

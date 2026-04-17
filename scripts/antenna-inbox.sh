@@ -59,13 +59,23 @@ log_entry() {
   echo "[$ts] INBOX    | $*" >> "$log_path"
 }
 
-# ── Queue file initialization ────────────────────────────────────────────────
+# ── Queue file initialization / locking ─────────────────────────────────────
+
+QUEUE_LOCK_PATH="${QUEUE_PATH}.lock"
 
 ensure_queue_file() {
+  mkdir -p "$(dirname "$QUEUE_PATH")"
   if [[ ! -f "$QUEUE_PATH" ]]; then
     echo '[]' > "$QUEUE_PATH"
     chmod 644 "$QUEUE_PATH"
   fi
+}
+
+with_queue_lock() {
+  ensure_queue_file
+  exec 9>"$QUEUE_LOCK_PATH"
+  flock -x 9
+  "$@"
 }
 
 # ── Read queue ───────────────────────────────────────────────────────────────
@@ -189,15 +199,12 @@ cmd_show() {
   echo "Size: $(echo "$item" | jq -r '.body_chars') chars"
 }
 
-cmd_approve() {
-  local target="${1:?Usage: antenna-inbox.sh approve all|<ref-list>}"
-  ensure_queue_file
-  
+cmd_approve_locked() {
+  local target="$1"
   local queue
   queue=$(read_queue)
-  
+
   if [[ "$target" == "all" ]]; then
-    # Approve all pending
     local updated
     updated=$(echo "$queue" | jq '[.[] | if .status == "pending" then .status = "approved" else . end]')
     write_queue "$updated"
@@ -206,10 +213,9 @@ cmd_approve() {
     ok "Approved all pending messages ($count items)"
     log_entry "action:approve_all | count:$count"
   else
-    # Parse ref list
     local refs
     refs=$(parse_ref_list "$target") || return 1
-    
+
     local updated="$queue"
     local approved_count=0
     for ref in $refs; do
@@ -223,22 +229,24 @@ cmd_approve() {
         '[.[] | if .ref == $r and .status == "pending" then .status = "approved" else . end]')
       approved_count=$((approved_count + 1))
     done
-    
+
     write_queue "$updated"
     ok "Approved $approved_count message(s)"
     log_entry "action:approve | refs:$target | count:$approved_count"
   fi
 }
 
-cmd_deny() {
-  local target="${1:?Usage: antenna-inbox.sh deny all|<ref-list>}"
-  ensure_queue_file
-  
+cmd_approve() {
+  local target="${1:?Usage: antenna-inbox.sh approve all|<ref-list>}"
+  with_queue_lock cmd_approve_locked "$target"
+}
+
+cmd_deny_locked() {
+  local target="$1"
   local queue
   queue=$(read_queue)
-  
+
   if [[ "$target" == "all" ]]; then
-    # Deny all pending
     local updated
     updated=$(echo "$queue" | jq '[.[] | if .status == "pending" then .status = "denied" else . end]')
     write_queue "$updated"
@@ -247,10 +255,9 @@ cmd_deny() {
     ok "Denied all pending messages ($count items)"
     log_entry "action:deny_all | count:$count"
   else
-    # Parse ref list
     local refs
     refs=$(parse_ref_list "$target") || return 1
-    
+
     local updated="$queue"
     local denied_count=0
     for ref in $refs; do
@@ -264,28 +271,30 @@ cmd_deny() {
         '[.[] | if .ref == $r and .status == "pending" then .status = "denied" else . end]')
       denied_count=$((denied_count + 1))
     done
-    
+
     write_queue "$updated"
     ok "Denied $denied_count message(s)"
     log_entry "action:deny | refs:$target | count:$denied_count"
   fi
 }
 
-cmd_drain() {
-  ensure_queue_file
+cmd_deny() {
+  local target="${1:?Usage: antenna-inbox.sh deny all|<ref-list>}"
+  with_queue_lock cmd_deny_locked "$target"
+}
+
+cmd_drain_locked() {
   local queue
   queue=$(read_queue)
-  
-  # Get approved items
+
   local approved
   approved=$(echo "$queue" | jq '[.[] | select(.status == "approved")]')
   local approved_count
   approved_count=$(echo "$approved" | jq 'length')
-  
-  # Get denied items (for removal)
+
   local denied_count
   denied_count=$(echo "$queue" | jq '[.[] | select(.status == "denied")] | length')
-  
+
   if [[ "$approved_count" -eq 0 && "$denied_count" -eq 0 ]]; then
     info "No messages to drain (nothing approved or denied)"
     return 0
@@ -321,67 +330,71 @@ cmd_drain() {
   info "Drained: $approved_count to deliver, $denied_count denied (removed)" >&2
 }
 
-cmd_clear() {
-  ensure_queue_file
+cmd_drain() {
+  with_queue_lock cmd_drain_locked
+}
+
+cmd_clear_locked() {
   local queue
   queue=$(read_queue)
-  
-  # Remove all delivered, denied, and failed items
+
   local cleared_count
   cleared_count=$(echo "$queue" | jq '[.[] | select(.status == "delivered" or .status == "denied" or .status == "failed")] | length')
-  
+
   if [[ "$cleared_count" -eq 0 ]]; then
     info "No processed messages to clear"
     return 0
   fi
-  
+
   local updated
   updated=$(echo "$queue" | jq '[.[] | select(.status != "delivered" and .status != "denied" and .status != "failed")]')
   write_queue "$updated"
-  
+
   ok "Cleared $cleared_count processed message(s)"
   log_entry "action:clear | count:$cleared_count"
 }
 
-cmd_queue_add() {
-  # Internal command for antenna-relay.sh to add items to the queue
-  # Expects a JSON object on stdin with all required fields
-  local item
-  item=$(cat)
-  
-  # Validate required fields
+cmd_clear() {
+  with_queue_lock cmd_clear_locked
+}
+
+cmd_queue_add_locked() {
+  local item="$1"
+
   local from target body
   from=$(echo "$item" | jq -r '.from // empty')
   target=$(echo "$item" | jq -r '.target_session // empty')
   body=$(echo "$item" | jq -r '.full_message // empty')
-  
+
   if [[ -z "$from" || -z "$target" || -z "$body" ]]; then
     err "Missing required fields in queue item"
     return 1
   fi
-  
-  ensure_queue_file
+
   local ref
   ref=$(next_ref)
-  
-  # Add ref and timestamps
+
   local enriched
   enriched=$(echo "$item" | jq --argjson ref "$ref" --arg ts "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     '. + {ref: $ref, queued_at: $ts, status: "pending"}')
-  
-  # Append to queue
+
   local queue updated
   queue=$(read_queue)
   updated=$(echo "$queue" | jq --argjson item "$enriched" '. + [$item]')
   write_queue "$updated"
-  
-  # Output result for relay script
+
   jq -n \
     --argjson ref "$ref" \
     --arg from "$from" \
     '{action: "queue", ref: $ref, from: $from}'
-  
+
   log_entry "action:queue | ref:$ref | from:$from | session:$target"
+}
+
+cmd_queue_add() {
+  local item
+  item=$(cat)
+  with_queue_lock cmd_queue_add_locked "$item"
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────

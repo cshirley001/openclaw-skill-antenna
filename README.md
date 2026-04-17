@@ -86,9 +86,11 @@ antenna-send.sh                    POST /hooks/agent
                                               │  Antenna Agent    │
                                               │  (lightweight)    │
                                               │                   │
-                                              │  1. exec relay    │
-                                              │     script        │
-                                              │  2. read output   │
+                                              │  1. write raw     │
+                                              │     message to    │
+                                              │     temp file     │
+                                              │  2. exec relay    │
+                                              │     file script   │
                                               │  3. sessions_send │
                                               │     (if valid)    │
                                               └────────┬──────────┘
@@ -167,9 +169,9 @@ antenna test-suite --report
 
 | Tier | Tests | What It Checks |
 |------|-------|----------------|
-| A | 8 | Relay script parsing, validation, rejection, session mapping |
-| B | 4 | Model correctly calls `exec` with relay script and envelope |
-| C | 4 | Model correctly calls `sessions_send` with relay output |
+| A | 15 | Relay parsing, validation, full-session-key enforcement, inbox queue behavior, and locking-sensitive state checks |
+| B | 4 | Model correctly chooses `write` first, preserves raw envelope content, and uses a unique relay temp path |
+| C | 4 | Model correctly continues with `sessions_send` using relay output and an allowlisted full session key |
 
 ---
 

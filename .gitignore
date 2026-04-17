@@ -23,6 +23,8 @@ agent/models.json
 .DS_Store
 Thumbs.db
 antenna-ratelimit.json
+antenna-*.lock
+*.pre-ticket-*
 *.age.txt
 references/GAPS.md
 docs/

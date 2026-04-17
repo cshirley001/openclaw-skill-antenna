@@ -231,6 +231,21 @@ TOOLS_JSON='[
   {
     "type": "function",
     "function": {
+      "name": "write",
+      "description": "Write content to a file",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string", "description": "Path to write"},
+          "content": {"type": "string", "description": "Content to write"}
+        },
+        "required": ["path", "content"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "exec",
       "description": "Execute a shell command",
       "parameters": {
@@ -264,6 +279,18 @@ TOOLS_JSON='[
 
 TOOLS_ANTHROPIC='[
   {
+    "name": "write",
+    "description": "Write content to a file",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string", "description": "Path to write"},
+        "content": {"type": "string", "description": "Content to write"}
+      },
+      "required": ["path", "content"]
+    }
+  },
+  {
     "name": "exec",
     "description": "Execute a shell command",
     "input_schema": {
@@ -294,6 +321,18 @@ TOOLS_ANTHROPIC='[
 TOOLS_GOOGLE='[
   {
     "functionDeclarations": [
+      {
+        "name": "write",
+        "description": "Write content to a file",
+        "parameters": {
+          "type": "OBJECT",
+          "properties": {
+            "path": {"type": "STRING", "description": "Path to write"},
+            "content": {"type": "STRING", "description": "Content to write"}
+          },
+          "required": ["path", "content"]
+        }
+      },
       {
         "name": "exec",
         "description": "Execute a shell command",
@@ -354,7 +393,7 @@ call_anthropic_api() {
     --argjson tools "$TOOLS_ANTHROPIC" \
     '{
       model: $model,
-      max_tokens: 4096,
+      max_tokens: 400,
       system: $system,
       messages: $messages,
       tools: $tools,
@@ -525,7 +564,7 @@ call_model_api() {
 
 # ── Self peer ────────────────────────────────────────────────────────────────
 
-SELF_PEER=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_PEER=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
 LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -541,6 +580,17 @@ run_tier_a() {
   fi
 
   local tests_run=0
+  local inbox_file="" inbox_backup="" rate_file="" rate_backup="" orig_config_conc=""
+
+  cleanup_tier_a_state() {
+    [[ -n "$inbox_backup" && -f "$inbox_backup" && -n "$inbox_file" ]] && cp "$inbox_backup" "$inbox_file"
+    [[ -n "$rate_backup" && -f "$rate_backup" && -n "$rate_file" ]] && cp "$rate_backup" "$rate_file"
+    [[ -n "$orig_config_conc" ]] && echo "$orig_config_conc" > "$SKILL_DIR/antenna-config.json"
+    [[ -n "$inbox_backup" ]] && rm -f "$inbox_backup"
+    [[ -n "$rate_backup" ]] && rm -f "$rate_backup"
+  }
+
+  trap cleanup_tier_a_state RETURN
 
   # Load self-peer's auth secret for inclusion in valid test envelopes
   local SELF_SECRET="" SELF_SECRET_FILE=""
@@ -582,7 +632,7 @@ ${body}
 
   # ── A.1: Valid envelope → relay ok ──
   local valid_envelope
-  valid_envelope=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Hello, this is a test message.")
+  valid_envelope=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Hello, this is a test message.")
 
   local result action status session_key
   result=$(echo "$valid_envelope" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
@@ -590,7 +640,7 @@ ${body}
   status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
   session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
 
-  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:antenna:test" ]]; then
+  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:betty:main" ]]; then
     pass "A.1" "Valid envelope → relay/ok with correct session"
   else
     fail "A.1" "Valid envelope → relay/ok" "Got action=$action status=$status session=$session_key"
@@ -609,7 +659,7 @@ ${body}
 
   # ── A.3: Missing 'from' header → rejected ──
   local no_from="[ANTENNA_RELAY]
-target_session: main
+target_session: agent:betty:main
 timestamp: 2026-01-01T00:00:00Z
 
 Test body
@@ -626,7 +676,7 @@ Test body
   # ── A.4: Unknown peer → rejected ──
   local unknown="[ANTENNA_RELAY]
 from: totally_unknown_host
-target_session: main
+target_session: agent:betty:main
 timestamp: 2026-01-01T00:00:00Z
 
 Test body
@@ -640,15 +690,30 @@ Test body
   fi
   tests_run=$((tests_run + 1))
 
-  # ── A.5: "main" → agent:<local>:main ──
-  local main_env
-  main_env=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "Test default session.")
+  # ── A.5: Bare session name rejected, full session key required ──
+  local main_env main_action main_reason
+  main_env=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "Bare session should fail.")
   result=$(echo "$main_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
-  session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
-  if [[ "$session_key" == "agent:${LOCAL_AGENT}:main" ]]; then
-    pass "A.5" "target_session 'main' → agent:${LOCAL_AGENT}:main"
+  main_action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  main_reason=$(echo "$result" | jq -r '.reason // ""' 2>/dev/null)
+  if [[ "$main_action" == "reject" ]] && echo "$main_reason" | grep -qi "allowed_inbound_sessions\|session target"; then
+    pass "A.5" "Bare session name 'main' → rejected"
   else
-    fail "A.5" "Session 'main' mapping" "Expected agent:${LOCAL_AGENT}:main, got $session_key"
+    fail "A.5" "Bare session name rejected" "Expected reject for bare session, got action=$main_action reason=$main_reason"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.5b: Full session key accepted ──
+  local full_key_env
+  full_key_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Full session key should pass.")
+  result=$(echo "$full_key_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  session_key=$(echo "$result" | jq -r '.sessionKey // "none"' 2>/dev/null)
+  if [[ "$action" == "relay" && "$status" == "ok" && "$session_key" == "agent:betty:main" ]]; then
+    pass "A.5b" "Full session key accepted"
+  else
+    fail "A.5b" "Full session key accepted" "Got action=$action status=$status session=$session_key"
   fi
   tests_run=$((tests_run + 1))
 
@@ -658,7 +723,7 @@ Test body
   local big_body
   big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
   local oversize
-  oversize=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "$big_body")
+  oversize=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "$big_body")
   result=$(echo "$oversize" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
   if [[ "$action" == "reject" ]]; then
@@ -671,7 +736,7 @@ Test body
   # ── A.7: No closing marker → malformed ──
   local no_close="[ANTENNA_RELAY]
 from: ${SELF_PEER}
-target_session: main
+target_session: agent:betty:main
 timestamp: 2026-01-01T00:00:00Z
 
 Missing close marker"
@@ -686,7 +751,7 @@ Missing close marker"
 
   # ── A.8: User header in delivery message ──
   local user_env
-  user_env=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Humanized test." "user: TestUser")
+  user_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Humanized test." "user: TestUser")
   result=$(echo "$user_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   local delivery_msg
   delivery_msg=$(echo "$result" | jq -r '.message // ""' 2>/dev/null)
@@ -709,7 +774,7 @@ Missing close marker"
   # Clear rate limit state
   echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
 
-  rate_env=$(build_envelope "$SELF_PEER" "agent:antenna:test" "2026-01-01T00:00:00Z" "Rate limit test.")
+  rate_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Rate limit test.")
 
   # Messages 1 and 2 should pass
   echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
@@ -736,7 +801,7 @@ Missing close marker"
   if [[ -n "$SELF_SECRET" ]]; then
     local no_auth_env="[ANTENNA_RELAY]
 from: ${SELF_PEER}
-target_session: agent:antenna:test
+target_session: agent:betty:main
 timestamp: 2026-01-01T00:00:00Z
 
 No auth header test.
@@ -759,7 +824,7 @@ No auth header test.
   if [[ -n "$SELF_SECRET" ]]; then
     local bad_auth_env="[ANTENNA_RELAY]
 from: ${SELF_PEER}
-target_session: agent:antenna:test
+target_session: agent:betty:main
 timestamp: 2026-01-01T00:00:00Z
 auth: deadbeef0000000000000000000000000000000000000000000000000000cafe
 
@@ -776,6 +841,67 @@ Wrong secret test.
     fi
   else
     skip "A.11" "Wrong auth secret → rejected" "No peer secret configured for self-peer" ""
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.12: Inbox queue-add deterministic path works ──
+  local queue_result queue_action queue_ref queue_from
+  inbox_file="$SKILL_DIR/antenna-inbox.json"
+  inbox_backup=$(mktemp)
+  cp "$inbox_file" "$inbox_backup" 2>/dev/null || printf '[]\n' > "$inbox_backup"
+  printf '[]\n' > "$inbox_file"
+
+  queue_result=$(printf '%s' '{"from":"suitepeer","target_session":"agent:betty:main","full_message":"suite queue test","display_name":"Suite Peer","body_preview":"suite queue test","body_chars":16,"session_key":"agent:betty:main"}' | bash "$SCRIPT_DIR/antenna-inbox.sh" queue-add 2>/dev/null)
+  queue_action=$(echo "$queue_result" | jq -r '.action // "none"' 2>/dev/null)
+  queue_ref=$(echo "$queue_result" | jq -r '.ref // "none"' 2>/dev/null)
+  queue_from=$(echo "$queue_result" | jq -r '.from // "none"' 2>/dev/null)
+  if [[ "$queue_action" == "queue" && "$queue_ref" == "1" && "$queue_from" == "suitepeer" ]]; then
+    pass "A.12" "Inbox queue-add returns queue action with ref"
+  else
+    fail "A.12" "Inbox queue-add deterministic path" "Got action=$queue_action ref=$queue_ref from=$queue_from"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.13: Inbox queue locking keeps refs unique under concurrency ──
+  printf '[]\n' > "$inbox_file"
+  for i in $(seq 1 6); do
+    (
+      printf '%s' '{"from":"suitepeer","target_session":"agent:betty:main","full_message":"suite lock test","display_name":"Suite Peer","body_preview":"suite lock test","body_chars":15,"session_key":"agent:betty:main"}' \
+        | bash "$SCRIPT_DIR/antenna-inbox.sh" queue-add >/dev/null 2>&1
+    ) &
+  done
+  wait
+  local queue_count queue_uniq
+  queue_count=$(jq 'length' "$inbox_file" 2>/dev/null || echo "0")
+  queue_uniq=$(jq '[.[].ref] | unique | length' "$inbox_file" 2>/dev/null || echo "0")
+  if [[ "$queue_count" == "6" && "$queue_uniq" == "6" ]]; then
+    pass "A.13" "Inbox locking preserves unique refs under concurrency"
+  else
+    fail "A.13" "Inbox locking concurrency" "Expected count=6 uniq=6, got count=$queue_count uniq=$queue_uniq"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.14: Rate-limit locking preserves all concurrent writes below threshold ──
+  rate_file="$SKILL_DIR/antenna-ratelimit.json"
+  rate_backup=$(mktemp)
+  cp "$rate_file" "$rate_backup" 2>/dev/null || printf '{}\n' > "$rate_backup"
+  orig_config_conc=$(cat "$SKILL_DIR/antenna-config.json")
+  printf '{}\n' > "$rate_file"
+  jq '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
+    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+  for i in $(seq 1 6); do
+    (
+      build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:0${i}Z" "Concurrent rate test $i" \
+        | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
+    ) &
+  done
+  wait
+  local rate_count
+  rate_count=$(jq '[."'"$SELF_PEER"'" // [] | length][0]' "$rate_file" 2>/dev/null || echo "0")
+  if [[ "$rate_count" == "6" ]]; then
+    pass "A.14" "Rate-limit locking preserves concurrent writes"
+  else
+    fail "A.14" "Rate-limit locking concurrency" "Expected self-peer count=6, got $rate_count"
   fi
   tests_run=$((tests_run + 1))
 
@@ -802,16 +928,16 @@ run_tier_b() {
 
   if [[ "$check" == "unsupported_provider" ]]; then
     skip "B.1" "API call" "Provider not supported: ${model%%/*}" "$model"
-    skip "B.2" "Tool call name" "Skipped (no API)" "$model"
-    skip "B.3" "Relay script ref" "Skipped (no API)" "$model"
-    skip "B.4" "Envelope content" "Skipped (no API)" "$model"
+    skip "B.2" "First tool call is write" "Skipped (no API)" "$model"
+    skip "B.3" "Write path/content shape" "Skipped (no API)" "$model"
+    skip "B.4" "Temp-file relay exec command shape" "Skipped (no API)" "$model"
     return
   fi
   if [[ "$check" == "no_key" ]]; then
     skip "B.1" "API call" "No API key for ${model%%/*}" "$model"
-    skip "B.2" "Tool call name" "Skipped (no key)" "$model"
-    skip "B.3" "Relay script ref" "Skipped (no key)" "$model"
-    skip "B.4" "Envelope content" "Skipped (no key)" "$model"
+    skip "B.2" "First tool call is write" "Skipped (no key)" "$model"
+    skip "B.3" "Write path/content shape" "Skipped (no key)" "$model"
+    skip "B.4" "Temp-file relay exec command shape" "Skipped (no key)" "$model"
     return
   fi
 
@@ -825,9 +951,12 @@ run_tier_b() {
   local test_ts
   test_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+  local allowed_test_session
+  allowed_test_session=$(jq -r '.allowed_inbound_sessions[0] // .default_target_session // "agent:betty:main"' "$CONFIG_FILE" 2>/dev/null)
+
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
-target_session: agent:antenna:test
+target_session: ${allowed_test_session}
 timestamp: ${test_ts}
 
 [Antenna Test Suite — Tier B]
@@ -835,7 +964,7 @@ model_under_test: ${model}
 host: $(hostname)
 test_time: ${test_ts}
 
-This is an automated relay compatibility test verifying that ${model} correctly invokes the relay script when receiving an inbound envelope.
+This is an automated relay compatibility test verifying that ${model} correctly writes the raw inbound message to a unique temp file and then invokes the relay-file script with a simple exec command.
 [/ANTENNA_RELAY]"
 
   # Build request based on provider format
@@ -853,7 +982,8 @@ This is an automated relay compatibility test verifying that ${model} correctly 
           {role: "user", content: $user}
         ],
         tools: $tools,
-        temperature: 0
+        temperature: 0,
+        max_tokens: 400
       }')
   else
     # Anthropic/Google: pass normalized input for the helper to build
@@ -886,42 +1016,44 @@ This is an automated relay compatibility test verifying that ${model} correctly 
     local err_msg
     err_msg=$(echo "$raw_response" | jq -r '.error.message // .error.type // "unknown"' 2>/dev/null || echo "HTTP $http_code")
     fail "B.1" "API call" "HTTP $http_code: $err_msg" "$model"
-    skip "B.2" "Tool call name" "Skipped (API failed)" "$model"
-    skip "B.3" "Relay script ref" "Skipped (API failed)" "$model"
-    skip "B.4" "Envelope content" "Skipped (API failed)" "$model"
+    skip "B.2" "First tool call is write" "Skipped (API failed)" "$model"
+    skip "B.3" "Write path/content shape" "Skipped (API failed)" "$model"
+    skip "B.4" "Temp-file relay exec command shape" "Skipped (API failed)" "$model"
     return
   fi
   pass "B.1" "API call succeeded (${elapsed}ms)" "$model"
 
-  # B.2: Tool call present and is exec
   if [[ -z "$tool_name" || "$tool_name" == "null" ]]; then
     fail "B.2" "Produced tool call" "Model returned text instead of tool call" "$model"
-    skip "B.2" "Tool call name" "No tool call" "$model"
-    skip "B.3" "Relay script ref" "No tool call" "$model"
-    skip "B.4" "Envelope content" "No tool call" "$model"
+    skip "B.3" "Write path/content shape" "No tool call" "$model"
+    skip "B.4" "Temp-file relay exec command shape" "No tool call" "$model"
     return
   fi
 
-  if [[ "$tool_name" == "exec" ]]; then
-    pass "B.2" "First tool call is 'exec'" "$model"
+  if [[ "$tool_name" == "write" ]]; then
+    pass "B.2" "First tool call is 'write'" "$model"
   else
-    fail "B.2" "First tool call is 'exec'" "Got '$tool_name'" "$model"
+    fail "B.2" "First tool call is 'write'" "Got '$tool_name'" "$model"
+    skip "B.3" "Write path/content shape" "First tool was not write" "$model"
+    skip "B.4" "Temp-file relay exec command shape" "First tool was not write" "$model"
+    return
   fi
 
-  # B.3: References relay script
-  local exec_command
-  exec_command=$(echo "$tool_args" | jq -r '.command // ""' 2>/dev/null)
-  if echo "$exec_command" | grep -q "antenna-relay\|relay\.sh"; then
-    pass "B.3" "Command references relay script" "$model"
+  local write_path write_content
+  write_path=$(echo "$tool_args" | jq -r '.path // ""' 2>/dev/null)
+  write_content=$(echo "$tool_args" | jq -r '.content // ""' 2>/dev/null)
+  if echo "$write_path" | grep -Eq '^/tmp/antenna-relay/msg-[A-Za-z0-9._-]+\.txt$' && echo "$write_content" | grep -q '\[ANTENNA_RELAY\]'; then
+    pass "B.3" "Write uses unique temp path and raw envelope content" "$model"
   else
-    fail "B.3" "Command references relay script" "Command: $(echo "$exec_command" | head -c 100)" "$model"
+    fail "B.3" "Write path/content shape" "Path=$write_path content_has_envelope=$(echo "$write_content" | grep -q '\[ANTENNA_RELAY\]' && echo yes || echo no)" "$model"
   fi
 
-  # B.4: Includes envelope content
-  if echo "$exec_command" | grep -q "ANTENNA_RELAY"; then
-    pass "B.4" "Command includes envelope content" "$model"
+  local finish_reason
+  finish_reason=$(echo "$raw_response" | jq -r '.choices[0].finish_reason // .stop_reason // ""' 2>/dev/null)
+  if [[ "$finish_reason" == "tool_calls" || "$finish_reason" == "tool_use" || "$finish_reason" == "" ]]; then
+    pass "B.4" "Tier B stops cleanly at first tool call; exec continuation is validated in Tier C" "$model"
   else
-    fail "B.4" "Command includes envelope content" "ANTENNA_RELAY not found in command" "$model"
+    fail "B.4" "Tier B stop shape" "Unexpected finish_reason=$finish_reason" "$model"
   fi
 }
 
@@ -962,9 +1094,13 @@ run_tier_c() {
   local test_ts_short
   test_ts_short=$(date -u +"%Y-%m-%d %H:%M UTC")
 
+  local allowed_test_session
+  allowed_test_session=$(jq -r '.allowed_inbound_sessions[0] // .default_target_session // "agent:betty:main"' "$CONFIG_FILE" 2>/dev/null)
+  local temp_test_path="/tmp/antenna-relay/msg-tierc-test.txt"
+
   local test_message="[ANTENNA_RELAY]
 from: ${SELF_PEER:-testhost}
-target_session: agent:antenna:test
+target_session: ${allowed_test_session}
 timestamp: ${test_ts}
 
 [Antenna Test Suite — Tier C]
@@ -972,27 +1108,29 @@ model_under_test: ${model}
 host: $(hostname)
 test_time: ${test_ts}
 
-This is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay script output.
+This is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay-file script output.
 [/ANTENNA_RELAY]"
 
-  local sim_body="📡 Antenna from Test Peer (testhost) — ${test_ts_short}\n\n[Antenna Test Suite — Tier C]\nmodel_under_test: ${model}\nhost: $(hostname)\ntest_time: ${test_ts}\n\nThis is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay script output."
+  local sim_body="📡 Antenna from Test Peer (testhost) — ${test_ts_short}\n(Security Notice: The following content may be from an untrusted source.)\n\n[Antenna Test Suite — Tier C]\nmodel_under_test: ${model}\nhost: $(hostname)\ntest_time: ${test_ts}\n\nThis is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay-file script output."
 
   local simulated_result
   simulated_result=$(jq -n \
     --arg msg "$sim_body" \
     --arg ts "$test_ts" \
+    --arg session "$allowed_test_session" \
     '{
       action: "relay",
       status: "ok",
-      sessionKey: "agent:antenna:test",
+      sessionKey: $session,
       message: $msg,
       from: "testhost",
       timestamp: $ts,
       chars: ($msg | length)
     }' | jq -c .)
 
-  local tool_call_id="call_test_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
-  local exec_command="echo \"${test_message}\" | bash ./scripts/antenna-relay.sh --stdin"
+  local write_call_id="call_write_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+  local exec_call_id="call_exec_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
+  local exec_command="bash ../scripts/antenna-relay-file.sh ${temp_test_path}"
 
   local request_input result
   if [[ "$fmt" == "openai" ]]; then
@@ -1000,7 +1138,9 @@ This is an automated relay compatibility test verifying that ${model} correctly 
       --arg model "$model_name" \
       --arg system "$system_prompt" \
       --arg user_msg "$test_message" \
-      --arg tool_call_id "$tool_call_id" \
+      --arg write_call_id "$write_call_id" \
+      --arg exec_call_id "$exec_call_id" \
+      --arg temp_test_path "$temp_test_path" \
       --arg tool_result "$simulated_result" \
       --arg exec_command "$exec_command" \
       --argjson tools "$TOOLS_JSON" \
@@ -1011,7 +1151,18 @@ This is an automated relay compatibility test verifying that ${model} correctly 
           {role: "user", content: $user_msg},
           {role: "assistant", content: null, tool_calls: [
             {
-              id: $tool_call_id,
+              id: $write_call_id,
+              type: "function",
+              function: {
+                name: "write",
+                arguments: ({path: $temp_test_path, content: $user_msg} | tostring)
+              }
+            }
+          ]},
+          {role: "tool", tool_call_id: $write_call_id, content: ""},
+          {role: "assistant", content: null, tool_calls: [
+            {
+              id: $exec_call_id,
               type: "function",
               function: {
                 name: "exec",
@@ -1019,16 +1170,19 @@ This is an automated relay compatibility test verifying that ${model} correctly 
               }
             }
           ]},
-          {role: "tool", tool_call_id: $tool_call_id, content: $tool_result}
+          {role: "tool", tool_call_id: $exec_call_id, content: $tool_result}
         ],
         tools: $tools,
-        temperature: 0
+        temperature: 0,
+        max_tokens: 400
       }')
   elif [[ "$fmt" == "anthropic" ]]; then
     request_input=$(jq -n \
       --arg system "$system_prompt" \
       --arg user_message "$test_message" \
-      --arg tool_call_id "$tool_call_id" \
+      --arg write_call_id "$write_call_id" \
+      --arg exec_call_id "$exec_call_id" \
+      --arg temp_test_path "$temp_test_path" \
       --arg exec_command "$exec_command" \
       --arg tool_result "$simulated_result" \
       '{
@@ -1040,7 +1194,28 @@ This is an automated relay compatibility test verifying that ${model} correctly 
             content: [
               {
                 type: "tool_use",
-                id: $tool_call_id,
+                id: $write_call_id,
+                name: "write",
+                input: {path: $temp_test_path, content: $user_message}
+              }
+            ]
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: $write_call_id,
+                content: ""
+              }
+            ]
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: $exec_call_id,
                 name: "exec",
                 input: {command: $exec_command}
               }
@@ -1051,7 +1226,7 @@ This is an automated relay compatibility test verifying that ${model} correctly 
             content: [
               {
                 type: "tool_result",
-                tool_use_id: $tool_call_id,
+                tool_use_id: $exec_call_id,
                 content: $tool_result
               }
             ]
@@ -1062,12 +1237,35 @@ This is an automated relay compatibility test verifying that ${model} correctly 
     request_input=$(jq -n \
       --arg system "$system_prompt" \
       --arg user_message "$test_message" \
+      --arg temp_test_path "$temp_test_path" \
       --arg exec_command "$exec_command" \
       --argjson sim_result "$simulated_result" \
       '{
         system: $system,
         user_message: $user_message,
         extra_google_contents: [
+          {
+            role: "model",
+            parts: [
+              {
+                functionCall: {
+                  name: "write",
+                  args: {path: $temp_test_path, content: $user_message}
+                }
+              }
+            ]
+          },
+          {
+            role: "user",
+            parts: [
+              {
+                functionResponse: {
+                  name: "write",
+                  response: {}
+                }
+              }
+            ]
+          },
           {
             role: "model",
             parts: [
@@ -1143,10 +1341,10 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   # C.3: Correct sessionKey
   local send_session
   send_session=$(echo "$send_args" | jq -r '.sessionKey // ""' 2>/dev/null)
-  if [[ "$send_session" == "agent:antenna:test" ]]; then
-    pass "C.3" "sessionKey matches (agent:antenna:test)" "$model"
+  if [[ "$send_session" == "$allowed_test_session" ]]; then
+    pass "C.3" "sessionKey matches allowlisted target (${allowed_test_session})" "$model"
   else
-    fail "C.3" "sessionKey matches" "Expected 'agent:antenna:test', got '$send_session'" "$model"
+    fail "C.3" "sessionKey matches" "Expected '$allowed_test_session', got '$send_session'" "$model"
   fi
 
   # C.4: Message includes relay content
