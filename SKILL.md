@@ -147,12 +147,16 @@ Key fields:
 
 ```bash
 scripts/antenna-send.sh <peer> "Your message here"
-antenna msg <peer> "Your message here"
+antenna msg <peer> "Your message here"                              # recipient resolves target session
 antenna msg <peer> --subject "Config sync" "Here's the block you need..."
-antenna msg <peer> --session "agent:<agent-id>:mychannel" "Your message"
+antenna msg <peer> --session "agent:<agent-id>:mychannel" "Your message"  # explicit session override
 echo "Long message body..." | antenna send <peer> --stdin
 antenna send <peer> --dry-run "Test message"
 ```
+
+> **Session resolution:** When `--session` is omitted, `target_session` is left out of the
+> envelope entirely. The recipient resolves from their own `default_target_session` config.
+> You don't need to know another host's internal session layout.
 
 ### Peer pairing (interactive wizard)
 

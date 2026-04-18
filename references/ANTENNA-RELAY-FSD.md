@@ -86,7 +86,6 @@ The hook message body contains a structured envelope wrapped in markers.
 [ANTENNA_RELAY]
 from: <sender-peer-id>
 reply_to: https://<sender-tailscale-hostname>/hooks/agent
-target_session: agent:<local_agent_id>:main
 timestamp: 2026-03-28T22:20:00Z
 subject: NVIDIA config sync
 
@@ -100,7 +99,7 @@ Hey Sis, here's the config block you need...
 |---|---|---|
 | `from` | Yes | Sender peer ID (must match key in local `antenna-peers.json`) |
 | `reply_to` | No | Sender's hook URL for replies (enables two-way) |
-| `target_session` | Yes | Session key to deliver into. `main` is shorthand for the recipient's primary agent main session. |
+| `target_session` | No | Full session key to deliver into (e.g. `agent:lobster:main`). When **omitted**, the recipient resolves from its own `default_target_session` config. When present, must be a full session key — bare names like `main` are rejected. |
 | `timestamp` | Yes | ISO-8601 send time |
 | `subject` | No | Optional subject/thread label for context |
 | `user` | No | Optional human sender name (experimental; only include when explicitly requested) |
@@ -198,9 +197,9 @@ echo "<raw_message>" | antenna-relay.sh --stdin
 2. **Parse headers:** Extract `from`, `reply_to`, `target_session`, `timestamp`, `subject` from the header block.
 3. **Extract body:** Everything between the blank line after headers and `[/ANTENNA_RELAY]`.
 4. **Validate `from`:** Check against `antenna-peers.json` allowed inbound peers list. Unknown → `RELAY_REJECT`.
-5. **Validate `target_session`:** Must be non-empty, must match allowed patterns. Empty → `RELAY_REJECT`.
+5. **Resolve `target_session`:** If present, validate against allowed patterns. If absent, resolve from local `default_target_session` config (fallback: `agent:<local_agent_id>:main`). Invalid or disallowed → `RELAY_REJECT`.
 6. **Check message length:** Body must not exceed `max_message_length` from config. Over limit → `RELAY_REJECT`.
-7. **Resolve `target_session`:** If value is `main`, expand to `agent:<local_agent_id>:main` using config defaults.
+7. **Expand legacy values:** If value is `main`, expand to `agent:<local_agent_id>:main` using config defaults. (Note: bare `main` is rejected by current full-session-key enforcement; this step exists for backward compatibility.)
 8. **Format delivery message:** Construct the final message that will appear in the target session. In v0.1, the stable default is the plain/original host-based form; if `user` is explicitly present, a friendlier humanized form may be used.
    ```
    📡 Antenna from <sender-display-name> (<sender-peer-id>) — 2026-03-28 18:20 EDT

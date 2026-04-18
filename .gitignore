@@ -28,3 +28,6 @@ antenna-*.lock
 *.age.txt
 references/GAPS.md
 docs/
+bruce_bundle1.txt
+bruce_reply_bundle1.txt
+bruce_import1.txt:Zone.Identifier

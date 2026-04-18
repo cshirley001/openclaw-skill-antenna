@@ -105,10 +105,12 @@ antenna-send.sh                    POST /hooks/agent
 Messages don't just dump into main chat. Target specific sessions:
 
 ```bash
-antenna msg peer "General question"                                      # → main session
+antenna msg peer "General question"                                      # → recipient's default session
 antenna msg peer --session "agent:lobster:projects" "Update on alpha"     # → specific session
 antenna msg peer --session "agent:labbot:results" "Batch 47 complete"    # → dedicated channel
 ```
+
+When you omit `--session`, the **recipient** resolves the target from their own `default_target_session` config. You don't need to know another host's internal session layout — just send the message and let it land in the right place.
 
 ---
 
@@ -314,7 +316,7 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.2.7** — Support contact info, SECURITY.md, ClawReef integration, interactive pairing wizard, inbox/deferred delivery, base64 relay transport, comprehensive user guide.
+**v1.2.20** — Concurrency hardening (unique relay temp files, `flock` locking), peer registry validation, full-session-key enforcement, session resolution fix (sender omits `target_session` when not explicit), validation/review artifacts, and docs refresh. See [CHANGELOG](CHANGELOG.md) for full history.
 
 ## Getting Help
 

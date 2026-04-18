@@ -187,3 +187,37 @@ whenever the gateway config file is found, without prompting.
 ### Fix
 Added Dependencies section to README listing jq, curl, openssl (required), age (required for
 Layer A exchange), and himalaya (optional for email send).
+
+## Issue #17: Bare send injects sender's default session into outbound envelope
+
+**Found:** 2026-04-17 (session resolution architecture discussion)
+**Severity:** Bug — causes rejection on recipient hosts with different session layouts
+**Status:** Fixed (2026-04-17)
+
+### Problem
+`antenna msg bruce "test"` without `--session` would bake the **sender's** local `default_target_session` (e.g. `agent:betty:main`) into the outbound envelope's `target_session` header. On the recipient's host, this session key doesn't exist in their allowlist — Bruce expects `agent:bruce:main`, not `agent:betty:main`.
+
+The sender shouldn't need to know the recipient's internal session layout.
+
+### Root cause
+`antenna-send.sh` always resolved a target session — first from explicit `--session`, then global `default_target_session`, then fallback `agent:<local_agent_id>:main` — and unconditionally included it in the envelope.
+
+### Fix
+Changed `antenna-send.sh` so that when no `--session` is explicitly provided, `target_session` is **omitted from the envelope entirely**. The recipient's `antenna-relay.sh` already handles a missing `target_session` by resolving from its own local `default_target_session` config.
+
+- Envelope builder conditionally includes `target_session` header only when set
+- Logs/output show `recipient-default` when session was omitted
+- Briefly tried a per-peer `default_session` field in `antenna-peers.json`; reverted in favor of the cleaner omit approach
+
+### Behavior after fix
+- `antenna msg <peer> "msg"` → no `target_session` in envelope → recipient resolves from own config
+- `antenna msg <peer> --session "agent:X:Y" "msg"` → explicit `target_session` in envelope → recipient uses it
+
+### Remaining work
+- [ ] Propagate fix to BETTYXX
+- [ ] Update SKILL.md / README.md / USER-GUIDE.md to document the new behavior
+- [ ] Add Tier A test for bare-send envelope shape (no `target_session` header present)
+- [ ] Live end-to-end test with Bruce once reachable
+
+### Decision reference
+`DEC-2026-04-17-011` in `memory/2026-04-17.md`

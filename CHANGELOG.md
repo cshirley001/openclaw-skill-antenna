@@ -15,6 +15,10 @@ All notable changes to the Antenna skill are documented here.
 - **Validation and review artifacts added:** Phase 1 review and validation checklists are now tracked in `references/` to preserve the Apr 17 hardening audit trail.
 - **Docs refreshed to current relay reality:** current file-based relay flow, full session keys, and known superseded guidance are reflected across operator-facing docs.
 
+### Fixed (post-release)
+- **Session resolution: sender no longer injects its own default session into outbound envelopes.** When `--session` is omitted, `target_session` is omitted from the envelope entirely; the recipient resolves from their own `default_target_session` config. Sender no longer needs to know the recipient's internal session layout. (Issue #17)
+  Docs impact: session_resolution, version_number
+
 ### Known issue
 - **Hook relay session may report `sessions_send` timeout even when delivery succeeds.** Cross-host smoke on 2026-04-17 confirmed successful end-to-end delivery despite the relay session showing a timeout in Control UI. Treat this as an operational/UI timing quirk, not a transport failure.
 
