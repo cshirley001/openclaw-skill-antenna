@@ -474,8 +474,8 @@ ensure_peer_entry_updated() {
     --arg preserve_self "$preserve_self" \
     '
     # Merge the provided fields into the existing entry, keeping existing
-    # values for any empty-string inputs.
-    .[$peer] = ((.[$peer] // {}) + {
+    # values for any empty-string inputs. Use `*` to preserve unmentioned keys.
+    .[$peer] = ((.[$peer] // {}) * {
       url: (if $url == "" then (.[$peer].url // "") else $url end),
       token_file: (if $token_ref == "" then (.[$peer].token_file // "") else $token_ref end),
       peer_secret_file: (if $secret_ref == "" then (.[$peer].peer_secret_file // "") else $secret_ref end),
@@ -508,14 +508,20 @@ legacy_export_runtime_secret() {
   secret="$(read_secret_file "$abs")"
   validate_runtime_secret "$secret"
 
+  warn "This is the legacy/manual fallback. It is weaker than the encrypted Layer A bundle flow."
+  info "Share it only over a trusted secure channel."
+  info "Preferred: antenna peers exchange initiate $peer_id --pubkey <age1...>"
+  info "Legacy peer import command: antenna peers exchange $peer_id --import-value <that-secret>"
+
+  if ! is_tty; then
+    die "Refusing to print the runtime identity secret to non-interactive stdout. Re-run in a terminal, or use the encrypted Layer A bundle flow instead."
+  fi
+
   echo
   echo -e "${BOLD}Local runtime identity secret for $(self_id):${NC}"
   echo
   echo "$secret"
   echo
-  warn "This is the legacy/manual fallback. It is weaker than the encrypted Layer A bundle flow."
-  info "Share it only over a trusted secure channel."
-  info "Peer import command: antenna peers exchange $peer_id --import-value <that-secret>"
 }
 
 legacy_import_runtime_secret() {

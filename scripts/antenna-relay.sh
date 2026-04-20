@@ -324,6 +324,31 @@ if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
   exit 0
 fi
 
+# ── Validate target session against allowlist (REF-500, pre-inbox gate) ────
+# Full session keys only. Exact match. No expansion — senders must use full keys.
+# Enforced BEFORE the inbox branch so queued messages can never target a
+# session outside allowed_inbound_sessions. The inbox is for human approval of
+# *content/peer*, not for laundering session-target policy around the allowlist.
+
+ALLOWED_SESSIONS=$(jq -r '
+  .allowed_inbound_sessions // [] | .[]
+' "$CONFIG_FILE" 2>/dev/null)
+
+session_allowed() {
+  local target="$1"
+  while IFS= read -r pattern; do
+    [[ -z "$pattern" ]] && continue
+    [[ "$target" == "$pattern" ]] && return 0
+  done <<< "$ALLOWED_SESSIONS"
+  return 1
+}
+
+if ! session_allowed "$TARGET_SESSION"; then
+  json_reject "Session target '$TARGET_SESSION' not in allowed_inbound_sessions" "$FROM"
+  log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:REJECTED (session not allowed)"
+  exit 0
+fi
+
 # ── Inbox queue check ────────────────────────────────────────────────────────
 
 INBOX_ENABLED=$(config_inbox_enabled)
@@ -335,8 +360,8 @@ if [[ "$INBOX_ENABLED" == "true" ]]; then
   ' "$CONFIG_FILE" 2>/dev/null || echo "no")
   
   if [[ "$AUTO_APPROVED" != "yes" ]]; then
-    # Queued messages bypass the session allowlist check below.
-    # Session target is validated at delivery time via sessions_send.
+    # Session target already validated above against allowed_inbound_sessions
+    # (REF-500). Queued messages cannot target disallowed sessions.
     RESOLVED_SESSION="$TARGET_SESSION"
     
     DISPLAY_NAME=$(peers_get "$FROM" display_name); DISPLAY_NAME="${DISPLAY_NAME:-$FROM}"
@@ -395,27 +420,7 @@ ${BODY}"
   # Auto-approved peers fall through to normal relay
 fi
 
-# ── Validate target session against allowlist ───────────────────────────────
-# Full session keys only. Exact match. No expansion — senders must use full keys.
-
-ALLOWED_SESSIONS=$(jq -r '
-  .allowed_inbound_sessions // [] | .[]
-' "$CONFIG_FILE" 2>/dev/null)
-
-session_allowed() {
-  local target="$1"
-  while IFS= read -r pattern; do
-    [[ -z "$pattern" ]] && continue
-    [[ "$target" == "$pattern" ]] && return 0
-  done <<< "$ALLOWED_SESSIONS"
-  return 1
-}
-
-if ! session_allowed "$TARGET_SESSION"; then
-  json_reject "Session target '$TARGET_SESSION' not in allowed_inbound_sessions" "$FROM"
-  log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:REJECTED (session not allowed)"
-  exit 0
-fi
+# Session allowlist already enforced above (REF-500) before the inbox branch.
 
 # ── Format delivery message ─────────────────────────────────────────────────
 

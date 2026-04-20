@@ -709,8 +709,22 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       tmp_gw=$(mktemp)
       # Read the hooks token from the token file to register it in gateway config
       file_token=""
+      existing_hooks_token=""
+      hooks_token_action="preserved"
       if [[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]]; then
         file_token="$(tr -d '[:space:]' < "$TOKEN_FILE")"
+      fi
+      existing_hooks_token="$(jq -r '.hooks.token // empty' "$GATEWAY_CFG" 2>/dev/null || true)"
+
+      if [[ -n "$file_token" ]]; then
+        if [[ -z "$existing_hooks_token" ]]; then
+          hooks_token_action="registered"
+        elif [[ "$existing_hooks_token" == "$file_token" ]]; then
+          hooks_token_action="unchanged"
+        else
+          hooks_token_action="preserved"
+          warn "Gateway already has hooks.token set to a different value. Preserving the existing gateway token and leaving Antenna's token only in $TOKEN_FILE"
+        fi
       fi
 
       jq --arg aid "antenna" --arg prefix "hook:" --arg agent_prefix "agent:${AGENT_ID}:" --arg file_token "$file_token" '
@@ -722,9 +736,18 @@ if [[ -n "$GATEWAY_CFG" ]]; then
           | if (index($prefix) | not) then . + [$prefix] else . end
           | if (index($agent_prefix) | not) then . + [$agent_prefix] else . end
         ) |
-        (if $file_token != "" then .hooks.token = $file_token else . end)
+        (if $file_token != "" and ((.hooks.token // "") == "" or (.hooks.token == $file_token)) then .hooks.token = $file_token else . end)
       ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-      ok "Hooks enabled, token registered, and allowlists updated"
+      ok "Hooks enabled and allowlists updated"
+      case "$hooks_token_action" in
+        registered) ok "Hooks token registered in gateway config" ;;
+        unchanged) info "Gateway hooks.token already matched Antenna token" ;;
+        preserved)
+          if [[ -n "$file_token" && -n "$existing_hooks_token" && "$existing_hooks_token" != "$file_token" ]]; then
+            info "Kept existing gateway hooks.token to avoid breaking other hook consumers"
+          fi
+          ;;
+      esac
 
       # 2) Ensure a default agent exists before adding antenna
       #    If agents.list is empty/absent, the default main agent is implicit.
