@@ -14,6 +14,11 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 json_ok() {
@@ -59,8 +64,8 @@ sanitize_log_value() {
 
 log_entry() {
   local log_enabled log_path
-  log_enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
-  log_path=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+  log_enabled=$(config_log_enabled)
+  log_path=$(config_log_path)
 
   if [[ "$log_enabled" != "true" ]]; then
     return 0
@@ -165,9 +170,9 @@ fi
 
 if [[ -z "$TARGET_SESSION" ]]; then
   # Use default from config; if absent, build full key for main session
-  TARGET_SESSION=$(jq -r '.default_target_session // empty' "$CONFIG_FILE" 2>/dev/null || true)
+  TARGET_SESSION=$(config_default_target_session)
   if [[ -z "$TARGET_SESSION" ]]; then
-    LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+    LOCAL_AGENT=$(config_local_agent_id)
     TARGET_SESSION="agent:${LOCAL_AGENT}:main"
   fi
 fi
@@ -191,8 +196,7 @@ if [[ "$ALLOWED" == "denied" ]]; then
 fi
 
 # Also check peers file for existence
-PEER_EXISTS=$(jq -r --arg from "$FROM" 'has($from) | tostring' "$PEERS_FILE" 2>/dev/null || echo "false")
-if [[ "$PEER_EXISTS" != "true" ]]; then
+if ! peers_exists "$FROM"; then
   json_reject "Unknown peer: $FROM (not in peers registry)" "$FROM"
   log_entry "INBOUND  | from:$FROM | status:REJECTED (unknown peer)"
   exit 0
@@ -206,7 +210,7 @@ fi
 AUTH_HEADER=$(get_header "auth")
 AUTH_HEADER=$(sanitize_log_value "$AUTH_HEADER" 128)
 
-EXPECTED_SECRET_FILE=$(jq -r --arg from "$FROM" '.[$from].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+EXPECTED_SECRET_FILE=$(peers_get "$FROM" peer_secret_file)
 if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
   # Resolve relative paths against skill dir
   if [[ "$EXPECTED_SECRET_FILE" != /* ]]; then
@@ -250,8 +254,8 @@ fi
 
 RATE_LIMIT_FILE="$SKILL_DIR/antenna-ratelimit.json"
 RATE_LIMIT_LOCK_FILE="${RATE_LIMIT_FILE}.lock"
-PEER_LIMIT=$(jq -r '.rate_limit.per_peer_per_minute // 10' "$CONFIG_FILE" 2>/dev/null || echo "10")
-GLOBAL_LIMIT=$(jq -r '.rate_limit.global_per_minute // 30' "$CONFIG_FILE" 2>/dev/null || echo "30")
+PEER_LIMIT=$(config_rate_limit_per_peer)
+GLOBAL_LIMIT=$(config_rate_limit_global)
 
 mkdir -p "$(dirname "$RATE_LIMIT_FILE")"
 if [[ ! -f "$RATE_LIMIT_FILE" ]]; then
@@ -311,7 +315,7 @@ fi
 
 # ── Validate message length ─────────────────────────────────────────────────
 
-MAX_LEN=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
+MAX_LEN=$(config_max_message_length)
 BODY_LEN=${#BODY}
 
 if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
@@ -322,7 +326,7 @@ fi
 
 # ── Inbox queue check ────────────────────────────────────────────────────────
 
-INBOX_ENABLED=$(jq -r '.inbox_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+INBOX_ENABLED=$(config_inbox_enabled)
 
 if [[ "$INBOX_ENABLED" == "true" ]]; then
   # Check auto-approve list
@@ -335,7 +339,7 @@ if [[ "$INBOX_ENABLED" == "true" ]]; then
     # Session target is validated at delivery time via sessions_send.
     RESOLVED_SESSION="$TARGET_SESSION"
     
-    DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
+    DISPLAY_NAME=$(peers_get "$FROM" display_name); DISPLAY_NAME="${DISPLAY_NAME:-$FROM}"
     
     # Convert UTC timestamp to a friendlier format if possible
     FRIENDLY_TS="$TIMESTAMP"
@@ -415,7 +419,7 @@ fi
 
 # ── Format delivery message ─────────────────────────────────────────────────
 
-DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
+DISPLAY_NAME=$(peers_get "$FROM" display_name); DISPLAY_NAME="${DISPLAY_NAME:-$FROM}"
 
 # Convert UTC timestamp to a friendlier format if possible
 FRIENDLY_TS="$TIMESTAMP"
@@ -445,7 +449,7 @@ ${BODY}"
 log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:relayed | chars:$BODY_LEN"
 
 # Check if verbose logging is enabled
-LOG_VERBOSE=$(jq -r '.log_verbose // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+LOG_VERBOSE=$(config_log_verbose)
 if [[ "$LOG_VERBOSE" == "true" ]]; then
   PREVIEW=$(sanitize_log_value "${BODY:0:100}" 100)
   log_entry "INBOUND  | from:$FROM | preview:${PREVIEW}..."

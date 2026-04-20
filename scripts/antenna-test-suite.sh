@@ -18,6 +18,11 @@ PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 RELAY_SCRIPT="$SCRIPT_DIR/antenna-relay.sh"
 AGENT_INSTRUCTIONS="$SKILL_DIR/agent/AGENTS.md"
 
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 MODELS=()
@@ -564,8 +569,8 @@ call_model_api() {
 
 # ── Self peer ────────────────────────────────────────────────────────────────
 
-SELF_PEER=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
-LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+SELF_PEER=$(peers_self_id)
+LOCAL_AGENT=$(config_local_agent_id)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TIER A: Script validation
@@ -594,7 +599,7 @@ run_tier_a() {
 
   # Load self-peer's auth secret for inclusion in valid test envelopes
   local SELF_SECRET="" SELF_SECRET_FILE=""
-  SELF_SECRET_FILE=$(jq -r --arg id "$SELF_PEER" '.[$id].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+  SELF_SECRET_FILE=$(peers_get "$SELF_PEER" peer_secret_file)
   if [[ -n "$SELF_SECRET_FILE" ]]; then
     if [[ "$SELF_SECRET_FILE" != /* ]]; then
       SELF_SECRET_FILE="$SKILL_DIR/$SELF_SECRET_FILE"
@@ -719,7 +724,7 @@ Test body
 
   # ── A.6: Oversized message → rejected ──
   local max_len
-  max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null)
+  max_len=$(config_max_message_length)
   local big_body
   big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
   local oversize
@@ -768,8 +773,7 @@ Missing close marker"
   orig_config=$(cat "$SKILL_DIR/antenna-config.json")
 
   # Patch config to limit 2/min for testing
-  jq '.rate_limit.per_peer_per_minute = 2' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
-    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+  config_mutate '.rate_limit.per_peer_per_minute = 2'
 
   # Clear rate limit state
   echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
@@ -887,8 +891,7 @@ Wrong secret test.
   cp "$rate_file" "$rate_backup" 2>/dev/null || printf '{}\n' > "$rate_backup"
   orig_config_conc=$(cat "$SKILL_DIR/antenna-config.json")
   printf '{}\n' > "$rate_file"
-  jq '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
-    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+  config_mutate '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50'
   for i in $(seq 1 6); do
     (
       build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:0${i}Z" "Concurrent rate test $i" \

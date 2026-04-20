@@ -17,8 +17,10 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 
-# Peer-shape filter: only iterate entries that are objects with a .url string
-PEER_JQ_KEYS='to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string") | .key'
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -130,7 +132,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     pass "antenna-peers.json exists and is valid JSON"
 
     # Check self-peer exists
-    local_self=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+    local_self=$(peers_self_id)
     if [[ -n "$local_self" ]]; then
       pass "Self-peer found: $local_self"
     else
@@ -295,6 +297,39 @@ else
   echo ""
 fi
 
+# ── 5b. Session allowlist ───────────────────────────────────────────────────
+
+echo -e "${BOLD}5b. Session Allowlist${NC}"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  local_agent=$(config_local_agent_id)
+
+  needs_main="agent:${local_agent}:main"
+  needs_antenna="agent:${local_agent}:antenna"
+  needs_modeltest="agent:antenna:modeltest"
+
+  for s in "$needs_main" "$needs_antenna"; do
+    if jq -e --arg s "$s" '.allowed_inbound_sessions // [] | index($s)' "$CONFIG_FILE" >/dev/null 2>&1; then
+      pass "session allowlisted: $s"
+    else
+      warn "session not allowlisted: $s"
+      hint "Run: antenna sessions add $s"
+    fi
+  done
+
+  # Model-test session — needed by 'antenna test' (self-registers, but doctor surfaces it)
+  if jq -e --arg s "$needs_modeltest" '.allowed_inbound_sessions // [] | index($s)' "$CONFIG_FILE" >/dev/null 2>&1; then
+    pass "session allowlisted: $needs_modeltest (needed by 'antenna test')"
+  else
+    warn "session not allowlisted: $needs_modeltest (needed by 'antenna test')"
+    hint "'antenna test' self-registers this; or add manually: antenna sessions add $needs_modeltest"
+  fi
+else
+  warn "Cannot check session allowlist — no $CONFIG_FILE"
+fi
+
+echo ""
+
 # ── 6. Secret files ─────────────────────────────────────────────────────────
 
 echo -e "${BOLD}6. Secrets & Permissions${NC}"
@@ -304,7 +339,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     [[ -z "$peer_id" ]] && continue
 
     # Token file
-    tf=$(jq -r --arg p "$peer_id" '.[$p].token_file // empty' "$PEERS_FILE" 2>/dev/null)
+    tf=$(peers_get "$peer_id" token_file)
     if [[ -n "$tf" ]]; then
       # Resolve relative paths
       [[ "$tf" != /* ]] && tf="$SKILL_DIR/$tf"
@@ -323,7 +358,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     fi
 
     # Peer secret file
-    psf=$(jq -r --arg p "$peer_id" '.[$p].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null)
+    psf=$(peers_get "$peer_id" peer_secret_file)
     if [[ -n "$psf" ]]; then
       [[ "$psf" != /* ]] && psf="$SKILL_DIR/$psf"
 
@@ -336,7 +371,7 @@ if [[ -f "$PEERS_FILE" ]]; then
           hint "chmod 600 $psf"
         fi
       else
-        is_self_check=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+        is_self_check=$(peers_get "$peer_id" self)
         if [[ "$is_self_check" == "true" ]]; then
           fail "$peer_id (self): identity secret missing: $psf"
           hint "Run: antenna setup (or openssl rand -hex 32 > $psf && chmod 600 $psf)"
@@ -346,13 +381,13 @@ if [[ -f "$PEERS_FILE" ]]; then
         fi
       fi
     else
-      is_self=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+      is_self=$(peers_get "$peer_id" self)
       if [[ "$is_self" == "true" ]]; then
         warn "$peer_id (self): no peer_secret_file configured"
         hint "Run: antenna setup --force (or add peer_secret_file to your self-peer entry)"
       fi
     fi
-  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
+  done < <(peers_list_ids)
 else
   warn "Cannot check secrets — no peers file"
 fi
@@ -367,10 +402,10 @@ if [[ -f "$PEERS_FILE" ]]; then
   while IFS= read -r peer_id; do
     [[ -z "$peer_id" ]] && continue
 
-    is_self=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+    is_self=$(peers_get "$peer_id" self)
     [[ "$is_self" == "true" ]] && continue
 
-    peer_url=$(jq -r --arg p "$peer_id" '.[$p].url // empty' "$PEERS_FILE" 2>/dev/null)
+    peer_url=$(peers_get "$peer_id" url)
     [[ -z "$peer_url" ]] && continue
 
     # Quick reachability check (5s timeout)
@@ -388,7 +423,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     else
       warn "$peer_id ($peer_url): responded with HTTP $http_code"
     fi
-  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
+  done < <(peers_list_ids)
 else
   warn "Cannot check connectivity — no peers file"
 fi
