@@ -908,6 +908,44 @@ Wrong secret test.
   fi
   tests_run=$((tests_run + 1))
 
+  # ── A.15: Inbox gate does not bypass allowed_inbound_sessions (REF-500) ──
+  # When inbox_enabled=true and the peer is not auto-approved, a message
+  # targeting a session OUTSIDE allowed_inbound_sessions must be REJECTED at
+  # relay time, not quietly queued for human approval.
+  local ref500_config_backup ref500_inbox_backup
+  ref500_config_backup=$(cat "$SKILL_DIR/antenna-config.json")
+  ref500_inbox_backup=$(mktemp)
+  cp "$SKILL_DIR/antenna-inbox.json" "$ref500_inbox_backup" 2>/dev/null || printf '[]\n' > "$ref500_inbox_backup"
+  printf '[]\n' > "$SKILL_DIR/antenna-inbox.json"
+
+  config_mutate '
+    .inbox_enabled = true
+    | .inbox_auto_approve_peers = []
+    | .allowed_inbound_sessions = ["agent:betty:main", "agent:betty:antenna"]
+  '
+
+  local ref500_env ref500_result ref500_action ref500_reason ref500_queue_len
+  ref500_env=$(build_envelope "$SELF_PEER" "agent:betty:sensitive-private" "2026-01-01T00:00:00Z" "Should be rejected, not queued.")
+  ref500_result=$(echo "$ref500_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  ref500_action=$(echo "$ref500_result" | jq -r '.action // "none"' 2>/dev/null)
+  ref500_reason=$(echo "$ref500_result" | jq -r '.reason // ""' 2>/dev/null)
+  ref500_queue_len=$(jq 'length' "$SKILL_DIR/antenna-inbox.json" 2>/dev/null || echo "-1")
+
+  if [[ "$ref500_action" == "reject" ]] \
+     && echo "$ref500_reason" | grep -qi "allowed_inbound_sessions" \
+     && [[ "$ref500_queue_len" == "0" ]]; then
+    pass "A.15" "REF-500: inbox gate honors allowed_inbound_sessions"
+  else
+    fail "A.15" "REF-500: inbox gate must reject disallowed session targets" \
+      "Got action=$ref500_action reason=$ref500_reason queue_len=$ref500_queue_len"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # Restore
+  printf '%s' "$ref500_config_backup" > "$SKILL_DIR/antenna-config.json"
+  cp "$ref500_inbox_backup" "$SKILL_DIR/antenna-inbox.json" 2>/dev/null || true
+  rm -f "$ref500_inbox_backup"
+
   TIER_A_TOTAL=$tests_run
 }
 
