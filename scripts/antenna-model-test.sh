@@ -85,14 +85,18 @@ ORIGINAL_MODEL=$(config_relay_agent_model)
 
 restore_model() {
   if [[ "$KEEP_MODEL" == "false" && "$MODEL" != "$ORIGINAL_MODEL" ]]; then
-    local tmp
-    tmp=$(mktemp)
-    if jq --arg m "$ORIGINAL_MODEL" '.relay_agent_model = $m' "$CONFIG_FILE" > "$tmp" 2>/dev/null; then
-      mv "$tmp" "$CONFIG_FILE"
+    # REF-1503: never restore the sentinel value produced by a missing
+    # config_relay_agent_model default — that would persist "unset"
+    # as a literal model name on any failure-before-swap code path.
+    if [[ -z "$ORIGINAL_MODEL" || "$ORIGINAL_MODEL" == "unset" ]]; then
+      echo ""
+      echo "WARNING: original model was unknown; not restoring. Check: antenna config show" >&2
+      return 0
+    fi
+    if config_set_relay_model "$ORIGINAL_MODEL"; then
       echo ""
       echo "Restored relay_agent_model → $ORIGINAL_MODEL"
     else
-      rm -f "$tmp"
       echo ""
       echo "WARNING: Failed to restore relay_agent_model. Manually set to: $ORIGINAL_MODEL" >&2
     fi
@@ -143,10 +147,13 @@ echo "Original:  $ORIGINAL_MODEL"
 echo ""
 
 if [[ "$MODEL" != "$ORIGINAL_MODEL" ]]; then
-  tmp=$(mktemp)
-  jq --arg m "$MODEL" '.relay_agent_model = $m' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-  echo "Swapped relay_agent_model → $MODEL"
-  echo ""
+  if config_set_relay_model "$MODEL"; then
+    echo "Swapped relay_agent_model → $MODEL"
+    echo ""
+  else
+    echo "ERROR: Failed to swap relay_agent_model to $MODEL" >&2
+    exit 1
+  fi
 fi
 
 # ── Run tests ────────────────────────────────────────────────────────────────

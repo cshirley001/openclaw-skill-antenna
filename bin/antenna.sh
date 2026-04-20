@@ -341,12 +341,10 @@ cmd_peers() {
       fi
 
       if [[ "$add_to_lists" == "true" ]]; then
-        local cfg_tmp
-        cfg_tmp=$(mktemp)
-        jq --arg p "$id" '
+        config_mutate '
           .allowed_inbound_peers = ((.allowed_inbound_peers // []) | if (index($p) | not) then . + [$p] else . end) |
           .allowed_outbound_peers = ((.allowed_outbound_peers // []) | if (index($p) | not) then . + [$p] else . end)
-        ' "$CONFIG_FILE" > "$cfg_tmp" && mv "$cfg_tmp" "$CONFIG_FILE"
+        ' --arg p "$id"
         echo "✓ Added $id to allowed_inbound_peers and allowed_outbound_peers"
       else
         echo "⚠ Peer added but NOT in allowlists. Run: antenna config set allowed_outbound_peers '[\"...\"]' to allow sending."
@@ -521,10 +519,9 @@ cmd_sessions() {
           skipped=$((skipped + 1))
           continue
         fi
-        local tmp
-        tmp=$(mktemp)
-        jq --argjson d "$defaults" --arg key "$key" --arg n "$name" \
-          '.[$key] = ((.[$key] // $d) + [$n])' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+        config_mutate \
+          '.[$key] = ((.[$key] // $d) + [$n])' \
+          --argjson d "$defaults" --arg key "$key" --arg n "$name"
         echo "  ✓  Added '$name'"
         added=$((added + 1))
       done
@@ -582,10 +579,9 @@ cmd_sessions() {
           done
         fi
 
-        local tmp
-        tmp=$(mktemp)
-        jq --argjson d "$defaults" --arg key "$key" --arg n "$name" \
-          '.[$key] = ((.[$key] // $d) | map(select(. != $n)))' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+        config_mutate \
+          '.[$key] = ((.[$key] // $d) | map(select(. != $n)))' \
+          --argjson d "$defaults" --arg key "$key" --arg n "$name"
         echo "  ✓  Removed '$name'"
         removed=$((removed + 1))
       done
@@ -620,18 +616,8 @@ cmd_config() {
     set)
       local key="${1:?Usage: antenna config set <key> <value>}"
       local value="${2:?Usage: antenna config set <key> <value>}"
-      local tmp
-      tmp=$(mktemp)
 
-      # Try to parse value as JSON (number, bool, array); fall back to string
-      if echo "$value" | jq -e '.' &>/dev/null; then
-        jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp" 2>/dev/null \
-          || jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp"
-      else
-        jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE" > "$tmp"
-      fi
-
-      mv "$tmp" "$CONFIG_FILE"
+      config_set_field "$key" "$value"
       echo "Set $key = $value"
 
       # When setting the relay model, also sync to gateway config and restart

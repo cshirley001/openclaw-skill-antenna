@@ -69,3 +69,71 @@ config_get() {
   local jq_path="$1" default="${2-}"
   _config_read "$jq_path" "$default"
 }
+
+# ── Writers ─────────────────────────────────────────────────────────────────
+#
+# All writers share the same atomic-write discipline:
+#   1. $CONFIG_FILE must exist (writers never create it — that's setup's job).
+#   2. Run jq into a mktemp file in the same directory (so mv is atomic on
+#      the same filesystem).
+#   3. If jq fails, the temp file is removed and the original is untouched.
+#   4. On success, mv replaces $CONFIG_FILE atomically.
+#   5. File permissions of $CONFIG_FILE are preserved across the swap.
+#
+# Writers never touch gateway.json — relay_agent_model sync is still done
+# at the callsite in bin/antenna.sh (_sync_relay_model_to_gateway).
+
+# config_mutate <jq_filter> [jq_args...]
+#   Runs `jq <args> '<filter>' $CONFIG_FILE` and atomically swaps the result
+#   in place. Returns non-zero (and preserves the original file) if jq fails
+#   or $CONFIG_FILE is missing.
+config_mutate() {
+  if [[ -z "${CONFIG_FILE:-}" || ! -f "$CONFIG_FILE" ]]; then
+    printf 'antenna: config_mutate: CONFIG_FILE unset or missing\n' >&2
+    return 1
+  fi
+
+  local filter="$1"; shift
+  local dir; dir=$(dirname -- "$CONFIG_FILE")
+  local tmp; tmp=$(mktemp "$dir/.antenna-config.XXXXXX") || return 1
+
+  if ! jq "$@" "$filter" "$CONFIG_FILE" > "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    printf 'antenna: config_mutate: jq filter failed\n' >&2
+    return 1
+  fi
+
+  # Preserve perms across the swap.
+  local perms
+  perms=$(stat -c '%a' "$CONFIG_FILE" 2>/dev/null \
+          || stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null \
+          || echo '')
+  if [[ -n "$perms" ]]; then
+    chmod "$perms" "$tmp" 2>/dev/null || true
+  fi
+
+  mv -- "$tmp" "$CONFIG_FILE"
+}
+
+# config_set_field <key> <value>
+#   Set a top-level field. Tries to interpret <value> as JSON (number,
+#   bool, array, object); falls back to string. Mirrors the behavior of
+#   `antenna config set` so both paths agree.
+config_set_field() {
+  local key="$1" value="$2"
+
+  if echo "$value" | jq -e '.' >/dev/null 2>&1; then
+    config_mutate '.[$k] = $v' --arg k "$key" --argjson v "$value" && return 0
+    # Fallback if argjson rejected e.g. a bare word that happened to parse.
+    config_mutate '.[$k] = $v' --arg k "$key" --arg v "$value"
+  else
+    config_mutate '.[$k] = $v' --arg k "$key" --arg v "$value"
+  fi
+}
+
+# config_set_relay_model <model>
+#   Convenience writer for `.relay_agent_model`. Gateway sync is the
+#   caller's responsibility (see bin/antenna.sh _sync_relay_model_to_gateway).
+config_set_relay_model() {
+  config_mutate '.relay_agent_model = $m' --arg m "$1"
+}
