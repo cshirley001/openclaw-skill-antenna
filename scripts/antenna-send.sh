@@ -184,7 +184,7 @@ SELF_ID=$(peers_self_id)
 SELF_URL=$(peers_self_url)
 
 if [[ -z "$SELF_ID" ]]; then
-  SELF_ID=$(hostname | tr '[:upper:]' '[:lower:]')
+  die "No self peer configured in antenna-peers.json (.self == true). Refusing to guess sender identity from hostname; run 'antenna setup' or repair the self peer entry." 1
 fi
 
 REPLY_TO="${REPLY_TO_OVERRIDE:-${SELF_URL:+${SELF_URL}/hooks/agent}}"
