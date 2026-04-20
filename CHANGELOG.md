@@ -27,6 +27,8 @@ All notable changes to the Antenna skill are documented here.
   Docs impact: identity_secret_handling
 - **REF-901 — setup could silently overwrite gateway `hooks.token`:** `scripts/antenna-setup.sh` now preserves an existing gateway `hooks.token` and only writes from Antenna's token file when the gateway value is absent or already matches.
   Docs impact: gateway_hooks_token_setup
+- **REF-903 — setup reruns silently stripped operator `tools.exec` policy from the antenna agent:** the existing-agent repair path in `scripts/antenna-setup.sh` no longer does `del(.exec)`, so expert `tools.exec` overrides survive reruns. Setup still forces `sandbox.mode = "off"` and seeds the default deny list only when `tools.deny` is absent.
+  Docs impact: setup_agent_update_behavior
 - **REF-1501 — poll-loop couldn't fast-fail on auth/peer/rate-limit REJECTED:** `scripts/antenna-relay.sh` now tags all post-body REJECTED log lines with `nonce:$NONCE` (missing `from`, peer not in allowlist, unknown peer, missing/invalid peer secret, per-peer rate limit, global rate limit). The two pre-body envelope-marker MALFORMED paths intentionally remain nonce-less. Combined with REF-1502, `antenna test <model>` now exits on the first nonce-scoped REJECTED instead of waiting for `--timeout`.
   Docs impact: model_test_behavior
 - **REF-1502 — `TEST_NONCE` generated but not used for log correlation:** `scripts/antenna-model-test.sh` now polls for nonce-scoped PASS (`INBOUND.*nonce:$TEST_NONCE.*status:relayed`) and nonce-scoped REJECTED instead of session-only matching, so concurrent runs can't cross-poison each other's results.

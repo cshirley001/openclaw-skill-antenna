@@ -801,16 +801,16 @@ if [[ -n "$GATEWAY_CFG" ]]; then
         ok "Registered Antenna agent in gateway config (sandbox off, least-privilege tools)"
       else
         info "Antenna agent already registered in gateway config"
-        # Ensure sandbox.mode=off on existing antenna entry
-        _has_sandbox=$(jq '[.agents.list // [] | .[] | select(.id == "antenna") | .sandbox.mode // empty] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
-        if [[ "$_has_sandbox" -eq 0 ]]; then
+        # Ensure sandbox.mode=off on existing antenna entry without stripping any
+        # operator-managed tools.exec or tools.deny customization.
+        _needs_antenna_repair=$(jq '[.agents.list // [] | .[] | select(.id == "antenna" and ((.sandbox.mode // "") != "off" or (.tools | type) != "object"))] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
+        if [[ "$_needs_antenna_repair" -gt 0 ]]; then
           tmp_gw=$(mktemp)
           jq '
             .agents.list = [.agents.list[] |
               if .id == "antenna" then
                 .sandbox = { mode: "off" } |
-                .tools = (.tools // {}) |
-                .tools |= del(.exec) |
+                .tools = (if (.tools | type) == "object" then .tools else {} end) |
                 .tools.deny = (.tools.deny // [
                   "group:web", "browser", "image", "image_generate",
                   "cron", "memory_search", "memory_get",
@@ -819,7 +819,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
               else . end
             ]
           ' "$GATEWAY_CFG" > "$tmp_gw" && mv "$tmp_gw" "$GATEWAY_CFG"
-          ok "Updated existing Antenna agent: sandbox off, least-privilege tools"
+          ok "Updated existing Antenna agent: sandbox off without removing operator tool overrides"
         fi
       fi
 
