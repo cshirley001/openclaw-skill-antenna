@@ -62,6 +62,24 @@ sanitize_log_value() {
   echo "$value"
 }
 
+secret_equal_constant_time() {
+  local left="$1" right="$2"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$left" "$right" <<'PY'
+import hmac
+import sys
+sys.exit(0 if hmac.compare_digest(sys.argv[1], sys.argv[2]) else 1)
+PY
+    return $?
+  fi
+
+  local left_hash right_hash
+  left_hash=$(printf '%s' "$left" | sha256sum | awk '{print $1}')
+  right_hash=$(printf '%s' "$right" | sha256sum | awk '{print $1}')
+  [[ "$left_hash" == "$right_hash" ]]
+}
+
 log_entry() {
   local log_enabled log_path
   log_enabled=$(config_log_enabled)
@@ -293,7 +311,7 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
     exit 0
   fi
 
-  if [[ "$AUTH_HEADER" != "$EXPECTED_SECRET" ]]; then
+  if ! secret_equal_constant_time "$AUTH_HEADER" "$EXPECTED_SECRET"; then
     # Diagnostic: provide actionable detail without exposing actual secrets
     auth_hint="${AUTH_HEADER:0:6}...${AUTH_HEADER: -4}"
     expected_hint="${EXPECTED_SECRET:0:6}...${EXPECTED_SECRET: -4}"
