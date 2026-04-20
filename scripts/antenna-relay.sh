@@ -216,6 +216,32 @@ if [[ -z "$TIMESTAMP" ]]; then
   TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 fi
 
+# ── REF-402: timestamp freshness window to limit replay exposure ───────────
+TIMESTAMP_EPOCH=$(date -u -d "$TIMESTAMP" +%s 2>/dev/null || echo "")
+if [[ -z "$TIMESTAMP_EPOCH" ]]; then
+  json_malformed "Invalid timestamp format"
+  log_entry "INBOUND  | from:$FROM | status:MALFORMED (invalid timestamp)"
+  exit 0
+fi
+
+NOW_EPOCH=$(date -u +%s)
+MAX_AGE_SECONDS=$(config_get '.security.max_message_age_seconds' '300')
+MAX_FUTURE_SKEW_SECONDS=$(config_get '.security.max_future_skew_seconds' '60')
+AGE_SECONDS=$((NOW_EPOCH - TIMESTAMP_EPOCH))
+FUTURE_SKEW_SECONDS=$((TIMESTAMP_EPOCH - NOW_EPOCH))
+
+if (( AGE_SECONDS > MAX_AGE_SECONDS )); then
+  json_reject "Message timestamp too old (${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)" "$FROM"
+  log_entry "INBOUND  | from:$FROM | status:REJECTED (timestamp too old: ${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)"
+  exit 0
+fi
+
+if (( FUTURE_SKEW_SECONDS > MAX_FUTURE_SKEW_SECONDS )); then
+  json_reject "Message timestamp too far in future (${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)" "$FROM"
+  log_entry "INBOUND  | from:$FROM | status:REJECTED (timestamp in future: ${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)"
+  exit 0
+fi
+
 # ── Validate sender against allowed inbound peers ───────────────────────────
 
 ALLOWED=$(jq -r --arg from "$FROM" '
