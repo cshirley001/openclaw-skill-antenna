@@ -238,7 +238,7 @@ fi
 TIMESTAMP_EPOCH=$(date -u -d "$TIMESTAMP" +%s 2>/dev/null || echo "")
 if [[ -z "$TIMESTAMP_EPOCH" ]]; then
   json_malformed "Invalid timestamp format"
-  log_entry "INBOUND  | from:$FROM | status:MALFORMED (invalid timestamp)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:MALFORMED (invalid timestamp)"
   exit 0
 fi
 
@@ -250,13 +250,13 @@ FUTURE_SKEW_SECONDS=$((TIMESTAMP_EPOCH - NOW_EPOCH))
 
 if (( AGE_SECONDS > MAX_AGE_SECONDS )); then
   json_reject "Message timestamp too old (${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (timestamp too old: ${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (timestamp too old: ${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)"
   exit 0
 fi
 
 if (( FUTURE_SKEW_SECONDS > MAX_FUTURE_SKEW_SECONDS )); then
   json_reject "Message timestamp too far in future (${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (timestamp in future: ${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (timestamp in future: ${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)"
   exit 0
 fi
 

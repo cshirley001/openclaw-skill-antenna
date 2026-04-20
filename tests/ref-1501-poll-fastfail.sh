@@ -91,10 +91,14 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 NONCE="REF1501_$(date +%s%N | sha256sum | cut -c1-10)"
+# Use a live timestamp so REF-402 freshness check passes; we want to exercise
+# the peer-allowlist REJECTED path (which is what REF-1501 is about), not the
+# timestamp-too-old path.
+NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 ENV="[ANTENNA_RELAY]
 from: totally-not-a-real-peer-$RANDOM
 target_session: agent:betty:main
-timestamp: 2026-04-20T00:00:00Z
+timestamp: ${NOW}
 
 nonce: ${NONCE}
 hello from test
