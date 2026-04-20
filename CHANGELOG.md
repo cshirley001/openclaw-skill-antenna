@@ -6,13 +6,23 @@ All notable changes to the Antenna skill are documented here.
 
 ### Fixed
 - **REF-500 — inbox session allowlist bypass:** already landed on `main` via PR #5.
+  Docs impact: session_resolution
 - **REF-604 — `ensure_peer_entry_updated()` lost unknown peer-entry fields:** jq merge switched from `+` to `*` so nested peer fields (including `.self`) are preserved additively during peer updates.
+  Docs impact: peer_registry_merge_semantics
 - **REF-605 — legacy identity-secret export could leak over non-TTY stdout:** `legacy_export_runtime_secret()` now refuses to print the runtime identity secret when stdout is not a TTY and points operators at Layer A encrypted bootstrap instead.
+  Docs impact: identity_secret_handling
 - **REF-901 — setup could silently overwrite gateway `hooks.token`:** `scripts/antenna-setup.sh` now preserves an existing gateway `hooks.token` and only writes from Antenna's token file when the gateway value is absent or already matches.
+  Docs impact: gateway_hooks_token_setup
+- **REF-1501 — poll-loop couldn't fast-fail on auth/peer/rate-limit REJECTED:** `scripts/antenna-relay.sh` now tags all post-body REJECTED log lines with `nonce:$NONCE` (missing `from`, peer not in allowlist, unknown peer, missing/invalid peer secret, per-peer rate limit, global rate limit). The two pre-body envelope-marker MALFORMED paths intentionally remain nonce-less. Combined with REF-1502, `antenna test <model>` now exits on the first nonce-scoped REJECTED instead of waiting for `--timeout`.
+  Docs impact: model_test_behavior
+- **REF-1502 — `TEST_NONCE` generated but not used for log correlation:** `scripts/antenna-model-test.sh` now polls for nonce-scoped PASS (`INBOUND.*nonce:$TEST_NONCE.*status:relayed`) and nonce-scoped REJECTED instead of session-only matching, so concurrent runs can't cross-poison each other's results.
+  Docs impact: model_test_behavior
 - **REF-1504 — model-test swap bypassed gateway sync:** `scripts/antenna-model-test.sh` now swaps and restores `relay_agent_model` through `antenna config set ... --no-restart` (which also updates the antenna agent's `.model` in `openclaw.json`). Gateway is bounced exactly once after the initial swap and once in the cleanup trap, instead of per-run.
+  Docs impact: model_test_behavior
 
 ### Added
 - **`--no-restart` flag on `antenna config set` and `antenna model set`** for rapid-batch callers that want to write gateway config now and restart the gateway once at the end. Internal helper `_sync_relay_model_to_gateway` split into `_write_relay_model_to_gateway_config` (no restart) and `_restart_gateway`.
+  Docs impact: model_test_behavior
 
 ## [1.2.20] — 2026-04-17
 
