@@ -459,7 +459,9 @@ EOF
 
 ensure_peer_entry_updated() {
   local peer_id="$1" url="$2" token_ref="$3" secret_ref="$4" agent_id="$5" display_name="$6" exchange_pubkey="$7"
-  local tmp
+  local tmp preserve_self
+  # REF-600 defense-in-depth: if the existing entry is flagged as self, keep it that way.
+  preserve_self=$(jq -r --arg p "$peer_id" '.[$p].self // false | tostring' "$PEERS_FILE" 2>/dev/null || echo "false")
   tmp=$(mktemp)
   jq \
     --arg peer "$peer_id" \
@@ -469,14 +471,25 @@ ensure_peer_entry_updated() {
     --arg agent_id "$agent_id" \
     --arg display_name "$display_name" \
     --arg exchange_pubkey "$exchange_pubkey" \
-    '.[$peer] = ((.[$peer] // {}) + {
+    --arg preserve_self "$preserve_self" \
+    '
+    # Merge the provided fields into the existing entry, keeping existing
+    # values for any empty-string inputs.
+    .[$peer] = ((.[$peer] // {}) + {
       url: (if $url == "" then (.[$peer].url // "") else $url end),
       token_file: (if $token_ref == "" then (.[$peer].token_file // "") else $token_ref end),
       peer_secret_file: (if $secret_ref == "" then (.[$peer].peer_secret_file // "") else $secret_ref end),
       agentId: (if $agent_id == "" then (.[$peer].agentId // "antenna") else $agent_id end),
       display_name: (if $display_name == "" then (.[$peer].display_name // null) else $display_name end),
       exchange_public_key: (if $exchange_pubkey == "" then (.[$peer].exchange_public_key // null) else $exchange_pubkey end)
-    })' \
+    })
+    # REF-600 defense-in-depth: preserve the existing .self flag across updates.
+    # Even if the merge object above did not list .self, this restores it when
+    # the entry was previously the self-peer. The primary guard in import_bundle
+    # should prevent ever reaching this path for the self-peer, but this keeps
+    # the invariant local to the writer.
+    | if ($preserve_self == "true") then .[$peer].self = true else . end
+    ' \
     "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
 }
 
@@ -729,6 +742,14 @@ print_import_preview() {
       warn "Bundle says it was intended for '$expected_peer', but this host identifies as '$self_peer'."
     fi
   fi
+
+  # REF-600: surface self-identity collision clearly at preview time.
+  local bundle_peer
+  bundle_peer=$(jq -r '.from_peer_id' "$bundle_json")
+  if [[ -n "$bundle_peer" && "$bundle_peer" == "$self_peer" ]]; then
+    warn "Bundle claims to be FROM peer '$bundle_peer' — the same ID this host uses for itself."
+    warn "Import will be refused to protect the self-peer entry. Rename the remote peer and re-issue."
+  fi
 }
 
 import_bundle() {
@@ -755,6 +776,25 @@ import_bundle() {
 
   validate_age_pubkey "$exchange_pubkey"
   validate_runtime_secret "$identity_secret"
+
+  # REF-600: primary guard against self-identity hijack.
+  # A bundle must never be allowed to overwrite the local self-peer entry.
+  # The self-peer is determined by '.self: true' in antenna-peers.json, not
+  # by the from_peer_id in an (even validly encrypted) bundle. Refuse before
+  # any writes occur; no --yes override is accepted for this condition.
+  if [[ "$peer_id" == "$self_peer" ]]; then
+    rm -f "$bundle_json"
+    log_entry "INBOUND-BOOTSTRAP | from:${peer_id} | status:refused | reason:self_identity_collision"
+    die "Refusing import: bundle claims peer_id='${peer_id}', which is this host's own self-peer.
+
+This could indicate:
+  - A bundle accidentally addressed to the wrong side of an exchange.
+  - An attacker attempting to hijack the self-peer identity.
+
+Self-peer identity is derived from antenna-peers.json (.self == true) and
+cannot be rewritten by import. If the remote needs a different name, have
+them re-run 'antenna setup' with a distinct peer_id and issue a new bundle."
+  fi
 
   print_import_preview "$bundle_json" "$self_peer"
 
