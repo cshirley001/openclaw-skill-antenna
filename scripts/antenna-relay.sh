@@ -106,6 +106,15 @@ if ! echo "$RAW_MESSAGE" | grep -q '\[/ANTENNA_RELAY\]'; then
   exit 0
 fi
 
+# Reject multiple envelope markers (collision/injection attempt)
+OPEN_COUNT=$(echo "$RAW_MESSAGE" | grep -o '\[ANTENNA_RELAY\]' | wc -l | tr -d ' ')
+CLOSE_COUNT=$(echo "$RAW_MESSAGE" | grep -o '\[/ANTENNA_RELAY\]' | wc -l | tr -d ' ')
+if [[ "$OPEN_COUNT" -ne 1 || "$CLOSE_COUNT" -ne 1 ]]; then
+  json_malformed "Multiple envelope markers detected"
+  log_entry "INBOUND  | status:MALFORMED (multiple envelope markers)"
+  exit 0
+fi
+
 # ── Extract envelope content ────────────────────────────────────────────────
 
 # Get everything between [ANTENNA_RELAY] and [/ANTENNA_RELAY]
@@ -159,6 +168,21 @@ TARGET_SESSION=$(sanitize_log_value "$TARGET_SESSION" 128)
 TIMESTAMP=$(sanitize_log_value "$TIMESTAMP" 32)
 SUBJECT=$(sanitize_log_value "$SUBJECT" 200)
 USER_NAME=$(sanitize_log_value "$USER_NAME" 64)
+
+# ── REF-400: reject reserved envelope markers inside parsed values ──────────
+if [[ "$BODY" == *"[ANTENNA_RELAY]"* ]] || [[ "$BODY" == *"[/ANTENNA_RELAY]"* ]]; then
+  json_malformed "Envelope markers detected inside body"
+  log_entry "INBOUND  | status:MALFORMED (marker in body)"
+  exit 0
+fi
+
+if [[ "$SUBJECT" == *"[ANTENNA_RELAY]"* ]] || [[ "$SUBJECT" == *"[/ANTENNA_RELAY]"* ]] || \
+   [[ "$USER_NAME" == *"[ANTENNA_RELAY]"* ]] || [[ "$USER_NAME" == *"[/ANTENNA_RELAY]"* ]] || \
+   [[ "$REPLY_TO" == *"[ANTENNA_RELAY]"* ]] || [[ "$REPLY_TO" == *"[/ANTENNA_RELAY]"* ]]; then
+  json_malformed "Envelope markers detected inside header values"
+  log_entry "INBOUND  | status:MALFORMED (marker in headers)"
+  exit 0
+fi
 
 # ── REF-1502: extract optional correlation nonce from body ──────────────────
 # The body may contain a `nonce: <value>` line (used by antenna-model-test.sh

@@ -38,6 +38,20 @@ source "$SKILL_DIR/lib/config.sh"
 
 die() { echo "{\"error\":\"$1\"}" >&2; exit "${2:-1}"; }
 
+# ── REF-400: envelope-marker collision guard ────────────────────────────────
+# The [ANTENNA_RELAY] / [/ANTENNA_RELAY] markers frame the wire envelope.
+# Any user-controlled value that contains one of those literal strings would
+# let an attacker inject a fake close (truncating the real body) and forge a
+# second envelope with attacker-chosen headers. There is no legitimate reason
+# for a user-supplied field to contain the marker, so we hard-reject.
+assert_no_envelope_markers() {
+  local field_name="$1"
+  local value="$2"
+  if [[ "$value" == *"[ANTENNA_RELAY]"* ]] || [[ "$value" == *"[/ANTENNA_RELAY]"* ]]; then
+    die "$field_name contains reserved envelope marker ([ANTENNA_RELAY] or [/ANTENNA_RELAY]); refuse to send" 2
+  fi
+}
+
 log_entry() {
   local log_enabled log_path
   log_enabled=$(config_log_enabled)
@@ -156,6 +170,12 @@ MSG_LEN=${#MESSAGE}
 if [[ "$MSG_LEN" -gt "$MAX_LEN" ]]; then
   die "Message exceeds max length ($MSG_LEN > $MAX_LEN chars)" 2
 fi
+
+# ── REF-400: reject envelope markers in user-controlled fields ──────────────
+assert_no_envelope_markers "message body" "$MESSAGE"
+assert_no_envelope_markers "--subject" "$SUBJECT"
+assert_no_envelope_markers "--user" "$USER_NAME"
+assert_no_envelope_markers "--reply-to" "$REPLY_TO_OVERRIDE"
 
 # ── Build sender identity ───────────────────────────────────────────────────
 
