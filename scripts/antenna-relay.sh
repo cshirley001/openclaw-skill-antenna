@@ -62,6 +62,24 @@ sanitize_log_value() {
   echo "$value"
 }
 
+secret_equal_constant_time() {
+  local left="$1" right="$2"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$left" "$right" <<'PY'
+import hmac
+import sys
+sys.exit(0 if hmac.compare_digest(sys.argv[1], sys.argv[2]) else 1)
+PY
+    return $?
+  fi
+
+  local left_hash right_hash
+  left_hash=$(printf '%s' "$left" | sha256sum | awk '{print $1}')
+  right_hash=$(printf '%s' "$right" | sha256sum | awk '{print $1}')
+  [[ "$left_hash" == "$right_hash" ]]
+}
+
 log_entry() {
   local log_enabled log_path
   log_enabled=$(config_log_enabled)
@@ -103,6 +121,15 @@ fi
 if ! echo "$RAW_MESSAGE" | grep -q '\[/ANTENNA_RELAY\]'; then
   json_malformed "No closing [/ANTENNA_RELAY] marker"
   log_entry "INBOUND  | status:MALFORMED (no closing marker)"
+  exit 0
+fi
+
+# Reject multiple envelope markers (collision/injection attempt)
+OPEN_COUNT=$(echo "$RAW_MESSAGE" | grep -o '\[ANTENNA_RELAY\]' | wc -l | tr -d ' ')
+CLOSE_COUNT=$(echo "$RAW_MESSAGE" | grep -o '\[/ANTENNA_RELAY\]' | wc -l | tr -d ' ')
+if [[ "$OPEN_COUNT" -ne 1 || "$CLOSE_COUNT" -ne 1 ]]; then
+  json_malformed "Multiple envelope markers detected"
+  log_entry "INBOUND  | status:MALFORMED (multiple envelope markers)"
   exit 0
 fi
 
@@ -160,6 +187,21 @@ TIMESTAMP=$(sanitize_log_value "$TIMESTAMP" 32)
 SUBJECT=$(sanitize_log_value "$SUBJECT" 200)
 USER_NAME=$(sanitize_log_value "$USER_NAME" 64)
 
+# ── REF-400: reject reserved envelope markers inside parsed values ──────────
+if [[ "$BODY" == *"[ANTENNA_RELAY]"* ]] || [[ "$BODY" == *"[/ANTENNA_RELAY]"* ]]; then
+  json_malformed "Envelope markers detected inside body"
+  log_entry "INBOUND  | status:MALFORMED (marker in body)"
+  exit 0
+fi
+
+if [[ "$SUBJECT" == *"[ANTENNA_RELAY]"* ]] || [[ "$SUBJECT" == *"[/ANTENNA_RELAY]"* ]] || \
+   [[ "$USER_NAME" == *"[ANTENNA_RELAY]"* ]] || [[ "$USER_NAME" == *"[/ANTENNA_RELAY]"* ]] || \
+   [[ "$REPLY_TO" == *"[ANTENNA_RELAY]"* ]] || [[ "$REPLY_TO" == *"[/ANTENNA_RELAY]"* ]]; then
+  json_malformed "Envelope markers detected inside header values"
+  log_entry "INBOUND  | status:MALFORMED (marker in headers)"
+  exit 0
+fi
+
 # ── REF-1502: extract optional correlation nonce from body ──────────────────
 # The body may contain a `nonce: <value>` line (used by antenna-model-test.sh
 # and anyone else who wants log correlation). Extract it with a strict
@@ -190,6 +232,32 @@ fi
 
 if [[ -z "$TIMESTAMP" ]]; then
   TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+fi
+
+# ── REF-402: timestamp freshness window to limit replay exposure ───────────
+TIMESTAMP_EPOCH=$(date -u -d "$TIMESTAMP" +%s 2>/dev/null || echo "")
+if [[ -z "$TIMESTAMP_EPOCH" ]]; then
+  json_malformed "Invalid timestamp format"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:MALFORMED (invalid timestamp)"
+  exit 0
+fi
+
+NOW_EPOCH=$(date -u +%s)
+MAX_AGE_SECONDS=$(config_get '.security.max_message_age_seconds' '300')
+MAX_FUTURE_SKEW_SECONDS=$(config_get '.security.max_future_skew_seconds' '60')
+AGE_SECONDS=$((NOW_EPOCH - TIMESTAMP_EPOCH))
+FUTURE_SKEW_SECONDS=$((TIMESTAMP_EPOCH - NOW_EPOCH))
+
+if (( AGE_SECONDS > MAX_AGE_SECONDS )); then
+  json_reject "Message timestamp too old (${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)" "$FROM"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (timestamp too old: ${AGE_SECONDS}s > ${MAX_AGE_SECONDS}s)"
+  exit 0
+fi
+
+if (( FUTURE_SKEW_SECONDS > MAX_FUTURE_SKEW_SECONDS )); then
+  json_reject "Message timestamp too far in future (${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)" "$FROM"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (timestamp in future: ${FUTURE_SKEW_SECONDS}s > ${MAX_FUTURE_SKEW_SECONDS}s)"
+  exit 0
 fi
 
 # ── Validate sender against allowed inbound peers ───────────────────────────
@@ -243,7 +311,7 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
     exit 0
   fi
 
-  if [[ "$AUTH_HEADER" != "$EXPECTED_SECRET" ]]; then
+  if ! secret_equal_constant_time "$AUTH_HEADER" "$EXPECTED_SECRET"; then
     # Diagnostic: provide actionable detail without exposing actual secrets
     auth_hint="${AUTH_HEADER:0:6}...${AUTH_HEADER: -4}"
     expected_hint="${EXPECTED_SECRET:0:6}...${EXPECTED_SECRET: -4}"

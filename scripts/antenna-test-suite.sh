@@ -614,6 +614,8 @@ run_tier_a() {
   fi
 
   # Helper: build a valid envelope with auth header included when available
+  CURRENT_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
   build_envelope() {
     local from="$1" session="$2" timestamp="$3" body="$4" extra_headers="${5:-}"
     local env="[ANTENNA_RELAY]
@@ -637,7 +639,7 @@ ${body}
 
   # ── A.1: Valid envelope → relay ok ──
   local valid_envelope
-  valid_envelope=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Hello, this is a test message.")
+  valid_envelope=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Hello, this is a test message.")
 
   local result action status session_key
   result=$(echo "$valid_envelope" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
@@ -665,7 +667,7 @@ ${body}
   # ── A.3: Missing 'from' header → rejected ──
   local no_from="[ANTENNA_RELAY]
 target_session: agent:betty:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${CURRENT_TS}
 
 Test body
 [/ANTENNA_RELAY]"
@@ -682,7 +684,7 @@ Test body
   local unknown="[ANTENNA_RELAY]
 from: totally_unknown_host
 target_session: agent:betty:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${CURRENT_TS}
 
 Test body
 [/ANTENNA_RELAY]"
@@ -697,7 +699,7 @@ Test body
 
   # ── A.5: Bare session name rejected, full session key required ──
   local main_env main_action main_reason
-  main_env=$(build_envelope "$SELF_PEER" "main" "2026-01-01T00:00:00Z" "Bare session should fail.")
+  main_env=$(build_envelope "$SELF_PEER" "main" "$CURRENT_TS" "Bare session should fail.")
   result=$(echo "$main_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   main_action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
   main_reason=$(echo "$result" | jq -r '.reason // ""' 2>/dev/null)
@@ -710,7 +712,7 @@ Test body
 
   # ── A.5b: Full session key accepted ──
   local full_key_env
-  full_key_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Full session key should pass.")
+  full_key_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Full session key should pass.")
   result=$(echo "$full_key_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
   status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
@@ -728,7 +730,7 @@ Test body
   local big_body
   big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
   local oversize
-  oversize=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "$big_body")
+  oversize=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "$big_body")
   result=$(echo "$oversize" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
   if [[ "$action" == "reject" ]]; then
@@ -742,7 +744,7 @@ Test body
   local no_close="[ANTENNA_RELAY]
 from: ${SELF_PEER}
 target_session: agent:betty:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${CURRENT_TS}
 
 Missing close marker"
   result=$(echo "$no_close" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
@@ -756,7 +758,7 @@ Missing close marker"
 
   # ── A.8: User header in delivery message ──
   local user_env
-  user_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Humanized test." "user: TestUser")
+  user_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Humanized test." "user: TestUser")
   result=$(echo "$user_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   local delivery_msg
   delivery_msg=$(echo "$result" | jq -r '.message // ""' 2>/dev/null)
@@ -764,6 +766,67 @@ Missing close marker"
     pass "A.8" "User header included in delivery message"
   else
     fail "A.8" "User header in delivery" "TestUser not found in message"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.8b: Multiple envelope markers → malformed ──
+  local multi_marker_env multi_status
+  multi_marker_env="[ANTENNA_RELAY]
+from: ${SELF_PEER}
+target_session: agent:betty:main
+timestamp: ${CURRENT_TS}
+
+a line
+[/ANTENNA_RELAY]
+[ANTENNA_RELAY]
+forged second envelope
+[/ANTENNA_RELAY]"
+  result=$(echo "$multi_marker_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  multi_status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  if [[ "$multi_status" == "malformed" ]]; then
+    pass "A.8b" "Multiple envelope markers → malformed"
+  else
+    fail "A.8b" "Multiple envelope markers → malformed" "Got status=$multi_status"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.8c: Marker inside subject header → malformed ──
+  local bad_subject_env bad_subject_status
+  bad_subject_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Hello" "subject: bad [/ANTENNA_RELAY] marker")
+  result=$(echo "$bad_subject_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  bad_subject_status=$(echo "$result" | jq -r '.status // "none"' 2>/dev/null)
+  if [[ "$bad_subject_status" == "malformed" ]]; then
+    pass "A.8c" "Marker inside subject header → malformed"
+  else
+    fail "A.8c" "Marker inside subject header → malformed" "Got status=$bad_subject_status"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.8d: Stale timestamp → rejected ──
+  local stale_ts stale_env stale_action stale_reason
+  stale_ts=$(date -u -d '10 minutes ago' +"%Y-%m-%dT%H:%M:%SZ")
+  stale_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$stale_ts" "Old message")
+  result=$(echo "$stale_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  stale_action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  stale_reason=$(echo "$result" | jq -r '.reason // ""' 2>/dev/null)
+  if [[ "$stale_action" == "reject" ]] && echo "$stale_reason" | grep -qi "timestamp too old"; then
+    pass "A.8d" "Stale timestamp → rejected"
+  else
+    fail "A.8d" "Stale timestamp → rejected" "Got action=$stale_action reason=$stale_reason"
+  fi
+  tests_run=$((tests_run + 1))
+
+  # ── A.8e: Future timestamp beyond skew window → rejected ──
+  local future_ts future_env future_action future_reason
+  future_ts=$(date -u -d '2 minutes' +"%Y-%m-%dT%H:%M:%SZ")
+  future_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$future_ts" "Future message")
+  result=$(echo "$future_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
+  future_action=$(echo "$result" | jq -r '.action // "none"' 2>/dev/null)
+  future_reason=$(echo "$result" | jq -r '.reason // ""' 2>/dev/null)
+  if [[ "$future_action" == "reject" ]] && echo "$future_reason" | grep -qi "timestamp too far in future"; then
+    pass "A.8e" "Future timestamp beyond skew window → rejected"
+  else
+    fail "A.8e" "Future timestamp beyond skew window → rejected" "Got action=$future_action reason=$future_reason"
   fi
   tests_run=$((tests_run + 1))
 
@@ -778,7 +841,7 @@ Missing close marker"
   # Clear rate limit state
   echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
 
-  rate_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:00Z" "Rate limit test.")
+  rate_env=$(build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Rate limit test.")
 
   # Messages 1 and 2 should pass
   echo "$rate_env" | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
@@ -806,7 +869,7 @@ Missing close marker"
     local no_auth_env="[ANTENNA_RELAY]
 from: ${SELF_PEER}
 target_session: agent:betty:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${CURRENT_TS}
 
 No auth header test.
 [/ANTENNA_RELAY]"
@@ -829,7 +892,7 @@ No auth header test.
     local bad_auth_env="[ANTENNA_RELAY]
 from: ${SELF_PEER}
 target_session: agent:betty:main
-timestamp: 2026-01-01T00:00:00Z
+timestamp: ${CURRENT_TS}
 auth: deadbeef0000000000000000000000000000000000000000000000000000cafe
 
 Wrong secret test.
@@ -894,7 +957,7 @@ Wrong secret test.
   config_mutate '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50'
   for i in $(seq 1 6); do
     (
-      build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:0${i}Z" "Concurrent rate test $i" \
+      build_envelope "$SELF_PEER" "agent:betty:main" "$CURRENT_TS" "Concurrent rate test $i" \
         | bash "$RELAY_SCRIPT" --stdin >/dev/null 2>&1
     ) &
   done
