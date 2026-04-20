@@ -129,10 +129,10 @@ Usage:
   antenna sessions remove <name> [<name>...] Remove session target(s) (core sessions need --force)
 
   antenna config show                        Show current configuration
-  antenna config set <key> <value>           Update a config value (syncs relay_agent_model to gateway)
+  antenna config set <key> <value> [--no-restart]  Update a config value (syncs relay_agent_model to gateway; skip restart with --no-restart)
 
   antenna model show                         Show current relay model
-  antenna model set <model>                  Set relay model (syncs to gateway + restarts)
+  antenna model set <model> [--no-restart]   Set relay model (syncs to gateway + restarts; skip restart with --no-restart)
 
   antenna log [--tail <n>]                   View transaction log (default: last 20)
   antenna log --since <duration>             Show entries from last N minutes/hours
@@ -431,7 +431,12 @@ cmd_peers() {
   esac
 }
 
-_sync_relay_model_to_gateway() {
+# _write_relay_model_to_gateway_config <model>
+#   Updates the antenna agent's .model field in openclaw.json.
+#   Returns 0 on successful write or when the sync is legitimately skipped
+#   (missing gateway config / antenna agent not registered). Returns non-zero
+#   only on unexpected failures. Never restarts the gateway.
+_write_relay_model_to_gateway_config() {
   local new_model="$1"
   local gateway_cfg=""
   for candidate in "$HOME/.openclaw/openclaw.json" "/home/$USER/.openclaw/openclaw.json"; do
@@ -443,14 +448,14 @@ _sync_relay_model_to_gateway() {
 
   if [[ -z "$gateway_cfg" ]]; then
     echo "⚠  Gateway config not found — skipping gateway sync. Update manually."
-    return
+    return 0
   fi
 
   local has_antenna
   has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$gateway_cfg" 2>/dev/null || echo "0")
   if [[ "$has_antenna" -eq 0 ]]; then
     echo "⚠  Antenna agent not registered in gateway config ($gateway_cfg) — skipping gateway sync."
-    return
+    return 0
   fi
 
   local tmp
@@ -459,13 +464,36 @@ _sync_relay_model_to_gateway() {
     .agents.list = [.agents.list[] | if .id == "antenna" then .model = $model else . end]
   ' "$gateway_cfg" > "$tmp" && mv "$tmp" "$gateway_cfg"
   echo "✓  Updated gateway config: antenna agent model → $new_model"
+}
 
+# _restart_gateway
+#   Restarts the OpenClaw gateway if `openclaw` is on PATH, otherwise prints
+#   a reminder to do it manually. Safe to call on its own; no config writes.
+_restart_gateway() {
   if command -v openclaw &>/dev/null 2>&1; then
     echo "↻  Restarting gateway..."
     openclaw gateway restart
     echo "✓  Gateway restarted"
   else
     echo "⚠  openclaw not found in PATH — restart gateway manually: openclaw gateway restart"
+  fi
+}
+
+# _sync_relay_model_to_gateway <model> [--no-restart]
+#   Backward-compatible wrapper: writes the relay model into gateway config
+#   and restarts the gateway by default. Pass --no-restart for rapid / batched
+#   callers (e.g. antenna-model-test.sh) that want to bounce the gateway once
+#   at the top instead of per-mutation.
+_sync_relay_model_to_gateway() {
+  local new_model="$1"
+  local restart=true
+  if [[ "${2:-}" == "--no-restart" ]]; then
+    restart=false
+  fi
+
+  _write_relay_model_to_gateway_config "$new_model"
+  if [[ "$restart" == "true" ]]; then
+    _restart_gateway
   fi
 }
 
@@ -614,15 +642,29 @@ cmd_config() {
       ;;
 
     set)
-      local key="${1:?Usage: antenna config set <key> <value>}"
-      local value="${2:?Usage: antenna config set <key> <value>}"
+      local key="${1:?Usage: antenna config set <key> <value> [--no-restart]}"
+      local value="${2:?Usage: antenna config set <key> <value> [--no-restart]}"
+      shift 2 || true
+
+      local no_restart=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --no-restart) no_restart=true; shift ;;
+          *) echo "Unknown option: $1" >&2; exit 1 ;;
+        esac
+      done
 
       config_set_field "$key" "$value"
       echo "Set $key = $value"
 
-      # When setting the relay model, also sync to gateway config and restart
+      # When setting the relay model, also sync to gateway config (and
+      # restart unless --no-restart was passed, for rapid batched callers).
       if [[ "$key" == "relay_agent_model" ]]; then
-        _sync_relay_model_to_gateway "$value"
+        if [[ "$no_restart" == "true" ]]; then
+          _sync_relay_model_to_gateway "$value" --no-restart
+        else
+          _sync_relay_model_to_gateway "$value"
+        fi
       fi
       ;;
 
@@ -646,8 +688,10 @@ cmd_model() {
       ;;
 
     set)
-      local model="${1:?Usage: antenna model set <model>}"
-      cmd_config set relay_agent_model "$model"
+      local model="${1:?Usage: antenna model set <model> [--no-restart]}"
+      shift || true
+      # Pass remaining flags through to config set (supports --no-restart).
+      cmd_config set relay_agent_model "$model" "$@"
       ;;
 
     *)

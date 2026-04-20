@@ -84,6 +84,9 @@ ORIGINAL_MODEL=$(config_relay_agent_model)
 # ── Restore handler ──────────────────────────────────────────────────────────
 
 restore_model() {
+  # REF-1504: use the CLI helper with --no-restart so the restore path also
+  # goes through gateway-config sync. The caller (cleanup_on_exit) handles
+  # the single gateway restart after all mutations.
   if [[ "$KEEP_MODEL" == "false" && "$MODEL" != "$ORIGINAL_MODEL" ]]; then
     # REF-1503: never restore the sentinel value produced by a missing
     # config_relay_agent_model default — that would persist "unset"
@@ -93,7 +96,7 @@ restore_model() {
       echo "WARNING: original model was unknown; not restoring. Check: antenna config show" >&2
       return 0
     fi
-    if config_set_relay_model "$ORIGINAL_MODEL"; then
+    if bash "$SCRIPT_DIR/../bin/antenna.sh" config set relay_agent_model "$ORIGINAL_MODEL" --no-restart >/dev/null; then
       echo ""
       echo "Restored relay_agent_model → $ORIGINAL_MODEL"
     else
@@ -128,9 +131,20 @@ unregister_test_session() {
   fi
 }
 
+# REF-1504: track whether we actually mutated the gateway agent model so we
+# know whether a single final restart is required on exit.
+GATEWAY_MODEL_TOUCHED=false
+
 cleanup_on_exit() {
   unregister_test_session
   restore_model
+  # REF-1504: one gateway restart to make the restored model active, instead
+  # of bouncing the gateway on every swap inside the test loop.
+  if [[ "$GATEWAY_MODEL_TOUCHED" == "true" && "$KEEP_MODEL" == "false" ]]; then
+    if command -v openclaw &>/dev/null 2>&1; then
+      openclaw gateway restart >/dev/null 2>&1 || true
+    fi
+  fi
 }
 trap cleanup_on_exit EXIT
 
@@ -147,8 +161,18 @@ echo "Original:  $ORIGINAL_MODEL"
 echo ""
 
 if [[ "$MODEL" != "$ORIGINAL_MODEL" ]]; then
-  if config_set_relay_model "$MODEL"; then
-    echo "Swapped relay_agent_model → $MODEL"
+  # REF-1504: go through the CLI helper so the gateway-config sync happens
+  # too — a raw jq write would leave the gateway agent pointing at the old
+  # model and the test would silently validate the wrong thing. One restart
+  # up front, no restart per run, final restart (if any) on exit.
+  if bash "$SCRIPT_DIR/../bin/antenna.sh" config set relay_agent_model "$MODEL" --no-restart >/dev/null; then
+    GATEWAY_MODEL_TOUCHED=true
+    if command -v openclaw &>/dev/null 2>&1; then
+      echo "Swapped relay_agent_model → $MODEL (restarting gateway once)"
+      openclaw gateway restart >/dev/null 2>&1 || true
+    else
+      echo "Swapped relay_agent_model → $MODEL (openclaw not on PATH; restart gateway manually)"
+    fi
     echo ""
   else
     echo "ERROR: Failed to swap relay_agent_model to $MODEL" >&2
