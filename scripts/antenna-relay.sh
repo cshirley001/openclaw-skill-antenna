@@ -175,7 +175,7 @@ NONCE="${NONCE:--}"
 
 if [[ -z "$FROM" ]]; then
   json_reject "Missing required field: from"
-  log_entry "INBOUND  | status:REJECTED (missing from)"
+  log_entry "INBOUND  | nonce:$NONCE | status:REJECTED (missing from)"
   exit 0
 fi
 
@@ -202,14 +202,14 @@ ALLOWED=$(jq -r --arg from "$FROM" '
 
 if [[ "$ALLOWED" == "denied" ]]; then
   json_reject "Unknown or disallowed sender: $FROM" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (not in allowed_inbound_peers)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (not in allowed_inbound_peers)"
   exit 0
 fi
 
 # Also check peers file for existence
 if ! peers_exists "$FROM"; then
   json_reject "Unknown peer: $FROM (not in peers registry)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (unknown peer)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (unknown peer)"
   exit 0
 fi
 
@@ -231,7 +231,7 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
   if [[ ! -f "$EXPECTED_SECRET_FILE" ]]; then
     # Secret file configured but missing — fail closed
     json_reject "Peer auth configured but secret file missing for: $FROM" "$FROM"
-    log_entry "INBOUND  | from:$FROM | status:REJECTED (peer secret file missing)"
+    log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (peer secret file missing)"
     exit 0
   fi
 
@@ -239,7 +239,7 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
 
   if [[ -z "$AUTH_HEADER" ]]; then
     json_reject "Peer auth required but no auth header provided (from: $FROM)" "$FROM"
-    log_entry "INBOUND  | from:$FROM | status:REJECTED (missing auth header)"
+    log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (missing auth header)"
     exit 0
   fi
 
@@ -249,7 +249,7 @@ if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
     expected_hint="${EXPECTED_SECRET:0:6}...${EXPECTED_SECRET: -4}"
     diag_msg="Peer auth failed: invalid secret (from: $FROM). Received prefix/suffix: ${auth_hint}, expected prefix/suffix: ${expected_hint}. Likely cause: peer secrets are out of sync. Fix: re-run 'antenna peers exchange' between hosts to resync, or verify peer_secret_file points to the correct file on both sides."
     json_reject "Peer auth failed: invalid secret (from: $FROM)" "$FROM"
-    log_entry "INBOUND  | from:$FROM | status:REJECTED (invalid peer secret) | hint:received=${auth_hint} expected=${expected_hint} | fix:resync peer secrets via 'antenna peers exchange'"
+    log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (invalid peer secret) | hint:received=${auth_hint} expected=${expected_hint} | fix:resync peer secrets via 'antenna peers exchange'"
     exit 0
   fi
 
@@ -314,13 +314,13 @@ rate_limit_check_and_record
 
 if [[ "$RATE_VERDICT" == "peer_limited" ]]; then
   json_reject "Rate limited: peer '$FROM' exceeded $PEER_LIMIT messages/minute ($RATE_PEER_COUNT in window)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (rate limited: peer $RATE_PEER_COUNT/$PEER_LIMIT per min)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (rate limited: peer $RATE_PEER_COUNT/$PEER_LIMIT per min)"
   exit 0
 fi
 
 if [[ "$RATE_VERDICT" == "global_limited" ]]; then
   json_reject "Rate limited: global limit exceeded ($RATE_GLOBAL_COUNT/$GLOBAL_LIMIT messages/minute)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (rate limited: global $RATE_GLOBAL_COUNT/$GLOBAL_LIMIT per min)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (rate limited: global $RATE_GLOBAL_COUNT/$GLOBAL_LIMIT per min)"
   exit 0
 fi
 
