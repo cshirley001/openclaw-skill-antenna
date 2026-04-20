@@ -482,12 +482,10 @@ ensure_peer_entry_updated() {
 
 update_allowlists() {
   local peer_id="$1" add_inbound="$2" add_outbound="$3"
-  local tmp
-  tmp=$(mktemp)
-  jq --arg p "$peer_id" --argjson add_in "$add_inbound" --argjson add_out "$add_outbound" '
+  config_mutate '
     .allowed_inbound_peers = ((.allowed_inbound_peers // []) | if $add_in and (index($p) | not) then . + [$p] else . end) |
     .allowed_outbound_peers = ((.allowed_outbound_peers // []) | if $add_out and (index($p) | not) then . + [$p] else . end)
-  ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  ' --arg p "$peer_id" --argjson add_in "$add_inbound" --argjson add_out "$add_outbound"
 }
 
 legacy_export_runtime_secret() {

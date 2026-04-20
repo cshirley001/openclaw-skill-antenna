@@ -773,8 +773,7 @@ Missing close marker"
   orig_config=$(cat "$SKILL_DIR/antenna-config.json")
 
   # Patch config to limit 2/min for testing
-  jq '.rate_limit.per_peer_per_minute = 2' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
-    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+  config_mutate '.rate_limit.per_peer_per_minute = 2'
 
   # Clear rate limit state
   echo '{}' > "$SKILL_DIR/antenna-ratelimit.json" 2>/dev/null
@@ -892,8 +891,7 @@ Wrong secret test.
   cp "$rate_file" "$rate_backup" 2>/dev/null || printf '{}\n' > "$rate_backup"
   orig_config_conc=$(cat "$SKILL_DIR/antenna-config.json")
   printf '{}\n' > "$rate_file"
-  jq '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50' "$SKILL_DIR/antenna-config.json" > "$SKILL_DIR/antenna-config.json.tmp" \
-    && mv "$SKILL_DIR/antenna-config.json.tmp" "$SKILL_DIR/antenna-config.json"
+  config_mutate '.rate_limit.per_peer_per_minute = 20 | .rate_limit.global_per_minute = 50'
   for i in $(seq 1 6); do
     (
       build_envelope "$SELF_PEER" "agent:betty:main" "2026-01-01T00:00:0${i}Z" "Concurrent rate test $i" \
