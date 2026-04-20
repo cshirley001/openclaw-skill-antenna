@@ -5,7 +5,7 @@
 #   antenna peers exchange keygen [--force]
 #   antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email] [--email <addr> --send-email]
 #   antenna peers exchange initiate <peer-id> [options]
-#   antenna peers exchange import [file|-] [--yes]
+#   antenna peers exchange import [file|-] [--yes] [--force-expired]
 #   antenna peers exchange reply <peer-id> [options]
 #
 # Legacy/manual compatibility:
@@ -53,7 +53,7 @@ Encrypted flow (preferred):
   antenna peers exchange keygen [--force]
   antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email]
   antenna peers exchange initiate <peer-id> [options]
-  antenna peers exchange import [file|-] [--yes]
+  antenna peers exchange import [file|-] [--yes] [--force-expired]
   antenna peers exchange reply <peer-id> [options]
 
 Options for initiate / reply:
@@ -70,6 +70,7 @@ Options for initiate / reply:
 
 Options for import:
   --yes                         Skip confirmation prompts and accept allowlist updates
+  --force-expired               Import an expired bundle anyway
 
 Legacy/manual compatibility:
   antenna peers exchange <peer-id> --export
@@ -719,12 +720,27 @@ validate_bundle_json() {
   jq -e '
     .schema_version == 1 and
     .bundle_type == "antenna-bootstrap" and
+    (.expires_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
     (.from_peer_id | type == "string" and length > 0) and
     (.from_endpoint_url | type == "string" and length > 0) and
     (.from_hooks_token | type == "string" and length > 0) and
     (.from_identity_secret | type == "string" and test("^[0-9a-f]{64}$")) and
     (.from_exchange_pubkey | type == "string" and startswith("age1"))
   ' "$bundle_json" >/dev/null || die "Decrypted bundle JSON is missing required fields or is malformed."
+}
+
+validate_bundle_freshness() {
+  local bundle_json="$1" force_expired="${2:-false}"
+  local now expires_at
+  now="$(now_iso)"
+  expires_at="$(jq -r '.expires_at' "$bundle_json")"
+
+  if [[ "$force_expired" == "true" ]]; then
+    return 0
+  fi
+
+  jq -e --arg now "$now" '.expires_at >= $now' "$bundle_json" >/dev/null || \
+    die "Bundle expired at ${expires_at} (now: ${now}). Ask the sender to regenerate, or re-run with --force-expired if you really want to import it."
 }
 
 print_import_preview() {
@@ -759,7 +775,7 @@ print_import_preview() {
 }
 
 import_bundle() {
-  local input_path="$1" assume_yes="$2"
+  local input_path="$1" assume_yes="$2" force_expired="${3:-false}"
   local bundle_json peer_id display_name endpoint agent_id exchange_pubkey expected_peer self_peer
   local existing_url existing_name existing_token_ref existing_secret_ref existing_agent
   local token_ref token_abs secret_ref secret_abs add_inbound add_outbound
@@ -767,6 +783,7 @@ import_bundle() {
 
   bundle_json="$(decrypt_bundle_to_json "$input_path")"
   validate_bundle_json "$bundle_json"
+  validate_bundle_freshness "$bundle_json" "$force_expired"
 
   self_peer="$(self_id)"
   [[ -n "$self_peer" ]] || die "No self peer found in peers file. Run 'antenna setup' first."
@@ -1038,14 +1055,16 @@ cmd_import() {
   shift || true
   [[ -n "$input_path" ]] || input_path="-"
   local assume_yes=false
+  local force_expired=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --yes) assume_yes=true; shift ;;
+      --force-expired) force_expired=true; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option for import: $1" ;;
     esac
   done
-  import_bundle "$input_path" "$assume_yes"
+  import_bundle "$input_path" "$assume_yes" "$force_expired"
 }
 
 cmd_legacy_peer_entry() {
