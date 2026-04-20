@@ -300,31 +300,84 @@ cmd_peers() {
 
     add)
       local id="" url="" token_file="" display_name="" peer_secret_file="" exchange_public_key=""
-      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>]}"
+      local force="false"
+      # REF-300: track which fields were explicitly supplied on this invocation so
+      # merge semantics only overwrite keys the user actually passed. Unspecified
+      # fields preserve prior values; unknown top-level fields (e.g. .self set by
+      # peer-exchange) are preserved automatically by the jq merge below.
+      local set_url="false" set_tf="false" set_dn="false" set_psf="false" set_xpk="false"
+      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>] [--display-name <name>] [--force]}"
       shift
       while [[ $# -gt 0 ]]; do
         case "$1" in
-          --url)              url="$2"; shift 2 ;;
-          --token-file)       token_file="$2"; shift 2 ;;
-          --peer-secret-file) peer_secret_file="$2"; shift 2 ;;
-          --exchange-public-key) exchange_public_key="$2"; shift 2 ;;
-          --display-name)     display_name="$2"; shift 2 ;;
+          --url)              url="$2"; set_url="true"; shift 2 ;;
+          --token-file)       token_file="$2"; set_tf="true"; shift 2 ;;
+          --peer-secret-file) peer_secret_file="$2"; set_psf="true"; shift 2 ;;
+          --exchange-public-key) exchange_public_key="$2"; set_xpk="true"; shift 2 ;;
+          --display-name)     display_name="$2"; set_dn="true"; shift 2 ;;
+          --force)            force="true"; shift ;;
           *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
       done
-      if [[ -z "$url" || -z "$token_file" ]]; then
-        echo "Error: --url and --token-file are required" >&2; exit 1
+
+      # REF-300: detect existing entry and require explicit --force to update.
+      local peer_exists
+      peer_exists=$(jq -r --arg id "$id" 'has($id)' "$PEERS_FILE" 2>/dev/null || echo "false")
+      if [[ "$peer_exists" == "true" && "$force" != "true" ]]; then
+        echo "Error: peer '$id' already exists. Use --force to update (merges only specified fields), or 'antenna peers remove $id' first." >&2
+        exit 1
       fi
+
+      # New peers still require --url and --token-file; --force updates don't.
+      if [[ "$peer_exists" != "true" ]]; then
+        if [[ -z "$url" || -z "$token_file" ]]; then
+          echo "Error: --url and --token-file are required when adding a new peer" >&2; exit 1
+        fi
+      fi
+
       local tmp
       tmp=$(mktemp)
-      jq --arg id "$id" --arg url "$url" --arg tf "$token_file" --arg dn "$display_name" --arg psf "$peer_secret_file" --arg xpk "$exchange_public_key" \
-        '.[$id] = {url: $url, token_file: $tf, agentId: "antenna", display_name: (if $dn == "" then null else $dn end), peer_secret_file: (if $psf == "" then null else $psf end), exchange_public_key: (if $xpk == "" then null else $xpk end)}' \
+      # REF-300 / REF-303: merge rather than replace. Only fields explicitly
+      # supplied on this invocation overwrite existing values; unspecified
+      # fields preserve whatever is already in the registry (including unknown
+      # top-level peer-entry fields like .self).
+      jq \
+        --arg id "$id" \
+        --arg url "$url" \
+        --arg tf "$token_file" \
+        --arg dn "$display_name" \
+        --arg psf "$peer_secret_file" \
+        --arg xpk "$exchange_public_key" \
+        --arg set_url "$set_url" \
+        --arg set_tf "$set_tf" \
+        --arg set_dn "$set_dn" \
+        --arg set_psf "$set_psf" \
+        --arg set_xpk "$set_xpk" \
+        '
+          .[$id] = (
+            (.[$id] // {agentId: "antenna"})
+            | (if $set_url == "true" then .url = $url else . end)
+            | (if $set_tf  == "true" then .token_file = $tf else . end)
+            | (if $set_dn  == "true" then .display_name = (if $dn == "" then null else $dn end) else . end)
+            | (if $set_psf == "true" then .peer_secret_file = (if $psf == "" then null else $psf end) else . end)
+            | (if $set_xpk == "true" then .exchange_public_key = (if $xpk == "" then null else $xpk end) else . end)
+            | .agentId = (.agentId // "antenna")
+          )
+        ' \
         "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
-      echo "Added peer: $id ($url)"
-      if [[ -n "$peer_secret_file" ]]; then
+
+      if [[ "$peer_exists" == "true" ]]; then
+        echo "Updated peer: $id"
+        local merged_url
+        merged_url=$(jq -r --arg id "$id" '.[$id].url // ""' "$PEERS_FILE")
+        [[ -n "$merged_url" ]] && echo "  URL: $merged_url"
+      else
+        echo "Added peer: $id ($url)"
+      fi
+      if [[ "$set_psf" == "true" && -n "$peer_secret_file" ]]; then
         echo "Per-peer secret: $peer_secret_file"
       fi
-      if [[ -n "$exchange_public_key" ]]; then
+      if [[ "$set_xpk" == "true" && -n "$exchange_public_key" ]]; then
         echo "Exchange public key: set"
       fi
 
