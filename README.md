@@ -51,7 +51,7 @@ After setup, `antenna` is on your PATH — all future commands are just `antenna
 antenna pair
 ```
 
-Seven interactive steps: generate keypair → share public key → build encrypted bootstrap bundle → wait for reply → import → test → send first message. Every step has **Next / Skip / Quit** — go at your own pace.
+An interactive wizard walks you through generating an age keypair, sharing your public key, building an encrypted bootstrap bundle, importing the reply, testing connectivity, and sending your first message. Every step has **Next / Skip / Quit** — go at your own pace.
 
 **Or discover peers on [ClawReef](https://clawreef.io):** Register your host, find peers in the directory, and send invites — ClawReef delivers them via Antenna. The pairing wizard also offers ClawReef invites as an alternative to manual exchange.
 
@@ -122,32 +122,43 @@ Trust is layered, earned per-peer, and never assumed.
 |-------|-------------|
 | **HTTPS transport** | All traffic over encrypted connections |
 | **Bearer token** | Every webhook request authenticated |
-| **Per-peer identity secret** | Unique 64-char hex secret per peer; impersonation doesn't work |
+| **Per-peer identity secret** | Unique 64-char hex secret per peer, compared in constant time; impersonation doesn't work |
 | **Peer allowlists** | Explicit inbound/outbound lists; not on the guest list, not getting in |
-| **Session allowlists** | Inbound messages can only target approved session patterns |
-| **Rate limiting** | Per-peer and global throttles prevent relay saturation |
+| **Session allowlists** | Inbound messages can only target approved full session keys (e.g. `agent:betty:main`) |
+| **Envelope marker guard** | Messages whose body or headers contain `[ANTENNA_RELAY]` / `[/ANTENNA_RELAY]` are rejected — no envelope smuggling |
+| **Message freshness window** | Stale and future-dated envelopes rejected (defaults: 300s age, 60s future skew; tunable) |
+| **Rate limiting** | Per-peer and global throttles; inbox and rate-limit state are protected by transaction locking under concurrent load |
 | **Untrusted-input framing** | Relayed messages include a security notice for receiving agents |
 | **Log sanitization** | Peer-supplied values stripped of control characters |
-| **Permission audit** | `antenna status` checks token/secret file permissions |
+| **Permission audit** | `antenna status` checks token/secret file permissions; relay temp files are `umask 077` and shredded before unlink |
 
 ### Encrypted Bootstrap Exchange
 
 Pairing uses `age` encryption. Public keys are safe to share — they're locks, not keys. Bootstrap bundles carry everything needed (endpoint, tokens, secrets, metadata), encrypted so only the intended recipient can read them. No pasting raw secrets into chat.
 
+The encrypted flow is hardened end-to-end:
+
+- **Export never writes plaintext to disk** — bundle JSON streams directly into `age`
+- **Import cleans up plaintext on every exit path** — normal return, validation failure, preview failure, write failure, `Ctrl-C`
+- **Expired bundles are refused by default** — `--force-expired` is the disaster-recovery override
+- **Email send resolves the `From:` address from your Himalaya TOML config** — no `antenna@localhost` fallback, no free-text `From:` override
+- **Legacy raw-secret export refuses non-TTY stdout** — you can't pipe runtime identity secrets into captured automation
+
 ---
 
 ## Inbox & Deferred Delivery
 
-Optional. When enabled, messages from non-trusted peers queue for review instead of relaying immediately. Trusted peers bypass the queue.
+Optional. When enabled, inbound messages from peers **not** in your `inbox_auto_approve_peers` list queue for review instead of relaying immediately. Auto-approved peers bypass the queue and relay instantly.
 
 ```bash
 antenna inbox                    # list pending
+antenna inbox count              # pending count (great for heartbeats/cron)
 antenna inbox show 3             # read a message
-antenna inbox approve 1,3,5-7   # approve selectively
+antenna inbox approve 1,3,5-7    # approve selectively
 antenna inbox drain              # process approved/denied
 ```
 
-Progressive trust: messages from your laptop relay instantly; messages from a new peer queue until you're comfortable.
+Progressive trust: messages from your laptop relay instantly; messages from a new peer queue until you're comfortable. Queue mutations are protected by `flock` transaction locking so parallel approvals, denials, and drains can't corrupt state.
 
 ---
 
@@ -192,21 +203,25 @@ antenna send <peer> --dry-run "text"                # preview envelope
 ### Pairing & Peers
 
 ```bash
-antenna pair                                        # interactive pairing wizard
-antenna peers list                                  # list known peers
-antenna peers add <id> --url <url> --token-file <path>  # manual add
-antenna peers remove <id>                           # remove a peer
-antenna peers test <id>                             # test connectivity
+antenna pair                                            # interactive pairing wizard
+antenna peers list                                      # list known peers
+antenna peers add <id> --url <url> --token-file <path>  # first-time manual add
+antenna peers add <id> --url <new-url> --force          # update existing peer (field-level merge)
+antenna peers remove <id>                               # remove a peer
+antenna peers test <id>                                 # test connectivity
 ```
 
 ### Encrypted Exchange
 
 ```bash
-antenna peers exchange keygen                       # generate age keypair
-antenna peers exchange pubkey [--bare]              # show your public key
-antenna peers exchange initiate <peer> --pubkey <key>   # create bootstrap bundle
-antenna peers exchange import <file>                # import peer's bundle
-antenna peers exchange reply <peer>                 # reciprocal bundle
+antenna peers exchange keygen                                         # generate age keypair
+antenna peers exchange pubkey [--bare]                                # show your public key
+antenna peers exchange pubkey --email <addr> --send-email [--account <name>]   # email your pubkey via Himalaya
+antenna peers exchange initiate <peer> --pubkey <key>                 # create bootstrap bundle
+antenna peers exchange initiate <peer> --pubkey <key> --send-email [--account <name>]   # + email it
+antenna peers exchange import <file>                                  # import peer's bundle (refuses expired bundles)
+antenna peers exchange import <file> --force-expired                  # disaster-recovery override
+antenna peers exchange reply <peer>                                   # reciprocal bundle
 ```
 
 ### Diagnostics
@@ -235,7 +250,7 @@ antenna uninstall [--dry-run] [--purge-skill-dir]   # clean removal
 - **curl** — HTTP requests
 - **openssl** — secret generation
 - **age** — encrypted exchange (`apt install age` / [github.com/FiloSottile/age](https://github.com/FiloSottile/age))
-- **himalaya** *(optional)* — CLI email for sending bootstrap bundles
+- **himalaya** *(optional)* — CLI email for sending bootstrap bundles. The selected account must have `email = "you@example.com"` set under `[accounts.<name>]` in its TOML config; Antenna resolves the sender address from there and hard-fails if it can't.
 
 ---
 
@@ -246,8 +261,15 @@ antenna uninstall [--dry-run] [--purge-skill-dir]   # clean removal
 | Message sent but not visible | Session visibility or sandbox | Ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true`; Antenna agent needs `sandbox: { mode: "off" }` |
 | `401 Unauthorized` | Token mismatch | Verify sender's token matches receiver's `hooks.token` |
 | `403 Forbidden` | Allowlist missing | Check `hooks.allowedAgentIds` includes `"antenna"` |
+| `Relay rejected: timestamp out of range` | Peer clock skew | Sync clocks, or widen `.security.max_message_age_seconds` / `.security.max_future_skew_seconds` |
+| `Relay rejected: marker in body\|headers` | Literal `[ANTENNA_RELAY]` / `[/ANTENNA_RELAY]` in content | Envelope-smuggling guard working as intended — rephrase or encode the markers |
+| `self-id not configured - run antenna setup` | Missing host identity | Run `antenna setup`; sender no longer falls back to `$(hostname)` |
+| `Bundle expired - refusing import` | Bundle past its expiry timestamp | Ask peer for a fresh bundle; `--force-expired` is a last-resort override |
+| `Email send fails: could not resolve email for account` | Himalaya account has no `email` in TOML | Add `email = "..."` under `[accounts.<name>]` or pass `--account <other>` |
+| `Legacy export refused - not a TTY` | `antenna peers exchange <peer> --export` was piped/redirected | Run it in an interactive terminal, or use `antenna peers exchange initiate` for automation |
+| `peers add` refuses to update existing peer | By design | Pass `--force` to merge the fields you supplied; other fields are preserved |
 | `exec denied: allowlist miss` | Shell metacharacters in command | Use only simple commands; `antenna-relay-file.sh` accepts a file path only |
-| Repeated approval prompts | Stale exec overrides | **Remove** `tools.exec.security`/`tools.exec.ask` from Antenna agent (v1.2.14+) |
+| Repeated approval prompts | Stale exec overrides (default advice) | Default is **not** to set `tools.exec.security`/`tools.exec.ask` on the Antenna agent (v1.2.14+). Setup reruns now preserve your overrides if you've intentionally customized them. |
 | Unknown sender rejected | Peer not in inbound allowlist | Add to `allowed_inbound_peers` |
 | Exchange fails | `age` not installed | `apt install age` |
 | Gateway won't start | Config syntax error | Run `antenna doctor` |
@@ -316,7 +338,11 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.2.20** — Concurrency hardening (unique relay temp files, `flock` locking), peer registry validation, full-session-key enforcement, session resolution fix (sender omits `target_session` when not explicit), validation/review artifacts, and docs refresh. See [CHANGELOG](CHANGELOG.md) for full history.
+**v1.2.20** — Concurrency hardening (unique relay temp files, `flock` locking), peer registry validation, full-session-key enforcement, session resolution fix (sender omits `target_session` when not explicit), validation/review artifacts, and docs refresh.
+
+**`[Unreleased]` on `main`** builds on v1.2.20 with a broader security-hardening sweep: envelope marker guard (REF-400), message freshness window (REF-402), constant-time identity-secret compare (REF-501), self-id fallback removed (REF-404), relay temp-file hygiene (REF-403), expired-bundle refusal (REF-601), plaintext bootstrap-bundle cleanup (REF-603), Himalaya `From:` resolution (REF-616), legacy raw-secret export non-TTY refusal (REF-605), gateway `hooks.token` preservation on setup rerun (REF-901), operator `tools.exec` preservation on setup rerun (REF-903), peer-add overwrite policy with `--force` (REF-300/303), and model-test nonce-scoped fast-fail behavior (REF-1501/1502/1504).
+
+See [CHANGELOG](CHANGELOG.md) for full history.
 
 ## Getting Help
 
