@@ -93,7 +93,36 @@ restore_model() {
   fi
 }
 
-trap restore_model EXIT
+# ── Ensure test session is allowlisted ───────────────────────────────────────
+#
+# The relay will REJECT messages targeting $TEST_SESSION if it is not in
+# .allowed_inbound_sessions. Self-register it transiently and remove it on
+# exit so `antenna test` works out of the box and leaves no debris.
+
+SESSION_REGISTERED_BY_TEST=false
+
+if ! jq -e --arg s "$TEST_SESSION" '.allowed_inbound_sessions // [] | index($s)' \
+     "$CONFIG_FILE" >/dev/null 2>&1; then
+  echo "Test session '$TEST_SESSION' not in allowlist. Registering temporarily..."
+  if bash "$SCRIPT_DIR/../bin/antenna.sh" sessions add "$TEST_SESSION" >/dev/null 2>&1; then
+    SESSION_REGISTERED_BY_TEST=true
+  else
+    echo "WARNING: Failed to auto-register '$TEST_SESSION'. Test may fail with 'session not allowed'." >&2
+    echo "         Add manually with: antenna sessions add $TEST_SESSION" >&2
+  fi
+fi
+
+unregister_test_session() {
+  if [[ "$SESSION_REGISTERED_BY_TEST" == "true" ]]; then
+    bash "$SCRIPT_DIR/../bin/antenna.sh" sessions remove "$TEST_SESSION" >/dev/null 2>&1 || true
+  fi
+}
+
+cleanup_on_exit() {
+  unregister_test_session
+  restore_model
+}
+trap cleanup_on_exit EXIT
 
 # ── Swap model ───────────────────────────────────────────────────────────────
 
@@ -197,12 +226,28 @@ This is an automated relay test verifying that ${MODEL} can serve as the Antenna
   done
 
   # If we timed out, check what DID appear for a better error message
+  REJECT_REASON=""
   if [[ "$RESULT" == "timeout" && -f "$LOG_PATH" ]]; then
     NEW_LINES=$(tail -n +"$((LOG_LINES_BEFORE + 1))" "$LOG_PATH" 2>/dev/null || true)
     if echo "$NEW_LINES" | grep -q "INBOUND.*status:MALFORMED"; then
       RESULT="malformed"
     elif echo "$NEW_LINES" | grep -q "INBOUND.*status:REJECTED"; then
       RESULT="rejected"
+      # Pick the most specific rejection reason from the log line
+      if echo "$NEW_LINES" | grep -q 'session not allowed'; then
+        REJECT_REASON="session '$TEST_SESSION' not in allowlist"
+      elif echo "$NEW_LINES" | grep -q 'rate limit'; then
+        REJECT_REASON="rate limit exceeded"
+      elif echo "$NEW_LINES" | grep -q 'invalid peer secret'; then
+        REJECT_REASON="invalid peer secret (run: antenna peers exchange)"
+      elif echo "$NEW_LINES" | grep -q 'missing auth header\|missing auth\|auth failure'; then
+        REJECT_REASON="auth failure"
+      elif echo "$NEW_LINES" | grep -q 'peer not allowed'; then
+        REJECT_REASON="sender peer not in allowed_inbound_peers"
+      else
+        # Fall back to whatever the log records in parens after REJECTED
+        REJECT_REASON=$(echo "$NEW_LINES" | grep 'INBOUND.*status:REJECTED' | tail -1 | sed -n 's/.*status:REJECTED (\([^)]*\)).*/\1/p')
+      fi
     fi
   fi
 
@@ -221,7 +266,11 @@ This is an automated relay test verifying that ${MODEL} can serve as the Antenna
       FAIL_COUNT=$((FAIL_COUNT + 1))
       ;;
     rejected)
-      echo "RUN $i/$RUNS | model: $MODEL | status: FAIL | time: ${ELAPSED_SEC}s | error: relay rejected"
+      if [[ -n "$REJECT_REASON" ]]; then
+        echo "RUN $i/$RUNS | model: $MODEL | status: FAIL | time: ${ELAPSED_SEC}s | error: relay rejected (${REJECT_REASON})"
+      else
+        echo "RUN $i/$RUNS | model: $MODEL | status: FAIL | time: ${ELAPSED_SEC}s | error: relay rejected"
+      fi
       FAIL_COUNT=$((FAIL_COUNT + 1))
       ;;
     timeout)

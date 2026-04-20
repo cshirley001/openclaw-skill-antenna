@@ -295,6 +295,39 @@ else
   echo ""
 fi
 
+# ── 5b. Session allowlist ───────────────────────────────────────────────────
+
+echo -e "${BOLD}5b. Session Allowlist${NC}"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+
+  needs_main="agent:${local_agent}:main"
+  needs_antenna="agent:${local_agent}:antenna"
+  needs_modeltest="agent:antenna:modeltest"
+
+  for s in "$needs_main" "$needs_antenna"; do
+    if jq -e --arg s "$s" '.allowed_inbound_sessions // [] | index($s)' "$CONFIG_FILE" >/dev/null 2>&1; then
+      pass "session allowlisted: $s"
+    else
+      warn "session not allowlisted: $s"
+      hint "Run: antenna sessions add $s"
+    fi
+  done
+
+  # Model-test session — needed by 'antenna test' (self-registers, but doctor surfaces it)
+  if jq -e --arg s "$needs_modeltest" '.allowed_inbound_sessions // [] | index($s)' "$CONFIG_FILE" >/dev/null 2>&1; then
+    pass "session allowlisted: $needs_modeltest (needed by 'antenna test')"
+  else
+    warn "session not allowlisted: $needs_modeltest (needed by 'antenna test')"
+    hint "'antenna test' self-registers this; or add manually: antenna sessions add $needs_modeltest"
+  fi
+else
+  warn "Cannot check session allowlist — no $CONFIG_FILE"
+fi
+
+echo ""
+
 # ── 6. Secret files ─────────────────────────────────────────────────────────
 
 echo -e "${BOLD}6. Secrets & Permissions${NC}"

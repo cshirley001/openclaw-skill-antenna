@@ -556,7 +556,7 @@ jq -n \
     inbox_enabled: $inbox_enabled,
     inbox_auto_approve_peers: $inbox_auto,
     inbox_queue_path: "antenna-inbox.json",
-    allowed_inbound_sessions: [("agent:" + $agent + ":main"), ("agent:" + $agent + ":antenna")],
+    allowed_inbound_sessions: [("agent:" + $agent + ":main"), ("agent:" + $agent + ":antenna"), "agent:antenna:modeltest"],
     allowed_inbound_peers: [$host],
     allowed_outbound_peers: [$host]
   }' > "$CONFIG_FILE"
