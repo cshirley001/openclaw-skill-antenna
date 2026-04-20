@@ -21,6 +21,9 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 SECRETS_DIR="$SKILL_DIR/secrets"
+
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
 EXCHANGE_KEY_FILE="$SECRETS_DIR/antenna-exchange.agekey"
 EXCHANGE_PUB_FILE="$SECRETS_DIR/antenna-exchange.agepub"
 FALLBACK_LEGACY=false
@@ -147,19 +150,12 @@ ensure_core_files() {
   mkdir -p "$SECRETS_DIR"
 }
 
-self_id() {
-  jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || true
-}
-
-peer_exists() {
-  local peer_id="$1"
-  jq -e --arg p "$peer_id" 'has($p)' "$PEERS_FILE" >/dev/null 2>&1
-}
-
-peer_field() {
-  local peer_id="$1" field="$2"
-  jq -r --arg p "$peer_id" --arg f "$field" '.[$p][$f] // empty' "$PEERS_FILE" 2>/dev/null || true
-}
+# self_id / peer_exists / peer_field are thin wrappers over lib/peers.sh
+# (kept for call-site compatibility; the shared implementation lives in the
+# library so adding new scripts reuses the same predicates).
+self_id()     { peers_self_id; }
+peer_exists() { peers_exists "$1"; }
+peer_field()  { peers_get "$1" "$2"; }
 
 self_field() {
   local field="$1" sid

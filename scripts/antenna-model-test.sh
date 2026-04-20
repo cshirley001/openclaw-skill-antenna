@@ -13,6 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
+
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+
 LOG_PATH=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
 SEND_SCRIPT="$SCRIPT_DIR/antenna-send.sh"
 
@@ -67,7 +71,7 @@ for cmd in jq curl; do
   fi
 done
 
-SELF_PEER=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_PEER=$(peers_self_id)
 if [[ -z "$SELF_PEER" ]]; then
   echo "ERROR: No self-peer found in $PEERS_FILE (need an entry with \"self\": true)" >&2
   exit 1

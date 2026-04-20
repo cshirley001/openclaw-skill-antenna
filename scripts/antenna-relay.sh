@@ -14,6 +14,9 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 json_ok() {
@@ -191,8 +194,7 @@ if [[ "$ALLOWED" == "denied" ]]; then
 fi
 
 # Also check peers file for existence
-PEER_EXISTS=$(jq -r --arg from "$FROM" 'has($from) | tostring' "$PEERS_FILE" 2>/dev/null || echo "false")
-if [[ "$PEER_EXISTS" != "true" ]]; then
+if ! peers_exists "$FROM"; then
   json_reject "Unknown peer: $FROM (not in peers registry)" "$FROM"
   log_entry "INBOUND  | from:$FROM | status:REJECTED (unknown peer)"
   exit 0
@@ -206,7 +208,7 @@ fi
 AUTH_HEADER=$(get_header "auth")
 AUTH_HEADER=$(sanitize_log_value "$AUTH_HEADER" 128)
 
-EXPECTED_SECRET_FILE=$(jq -r --arg from "$FROM" '.[$from].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+EXPECTED_SECRET_FILE=$(peers_get "$FROM" peer_secret_file)
 if [[ -n "$EXPECTED_SECRET_FILE" ]]; then
   # Resolve relative paths against skill dir
   if [[ "$EXPECTED_SECRET_FILE" != /* ]]; then
@@ -335,7 +337,7 @@ if [[ "$INBOX_ENABLED" == "true" ]]; then
     # Session target is validated at delivery time via sessions_send.
     RESOLVED_SESSION="$TARGET_SESSION"
     
-    DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
+    DISPLAY_NAME=$(peers_get "$FROM" display_name); DISPLAY_NAME="${DISPLAY_NAME:-$FROM}"
     
     # Convert UTC timestamp to a friendlier format if possible
     FRIENDLY_TS="$TIMESTAMP"
@@ -415,7 +417,7 @@ fi
 
 # ── Format delivery message ─────────────────────────────────────────────────
 
-DISPLAY_NAME=$(jq -r --arg from "$FROM" '.[$from].display_name // $from' "$PEERS_FILE" 2>/dev/null || echo "$FROM")
+DISPLAY_NAME=$(peers_get "$FROM" display_name); DISPLAY_NAME="${DISPLAY_NAME:-$FROM}"
 
 # Convert UTC timestamp to a friendlier format if possible
 FRIENDLY_TS="$TIMESTAMP"

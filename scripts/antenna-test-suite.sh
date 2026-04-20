@@ -18,6 +18,9 @@ PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 RELAY_SCRIPT="$SCRIPT_DIR/antenna-relay.sh"
 AGENT_INSTRUCTIONS="$SKILL_DIR/agent/AGENTS.md"
 
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
 MODELS=()
@@ -564,7 +567,7 @@ call_model_api() {
 
 # ── Self peer ────────────────────────────────────────────────────────────────
 
-SELF_PEER=$(jq -r 'to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+SELF_PEER=$(peers_self_id)
 LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -594,7 +597,7 @@ run_tier_a() {
 
   # Load self-peer's auth secret for inclusion in valid test envelopes
   local SELF_SECRET="" SELF_SECRET_FILE=""
-  SELF_SECRET_FILE=$(jq -r --arg id "$SELF_PEER" '.[$id].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || echo "")
+  SELF_SECRET_FILE=$(peers_get "$SELF_PEER" peer_secret_file)
   if [[ -n "$SELF_SECRET_FILE" ]]; then
     if [[ "$SELF_SECRET_FILE" != /* ]]; then
       SELF_SECRET_FILE="$SKILL_DIR/$SELF_SECRET_FILE"

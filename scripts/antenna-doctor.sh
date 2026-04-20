@@ -17,8 +17,8 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 
-# Peer-shape filter: only iterate entries that are objects with a .url string
-PEER_JQ_KEYS='to_entries[] | select((.value | type) == "object" and (.value.url? | type) == "string") | .key'
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -130,7 +130,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     pass "antenna-peers.json exists and is valid JSON"
 
     # Check self-peer exists
-    local_self=$(jq -r 'to_entries[] | select(.value.self == true) | .key' "$PEERS_FILE" 2>/dev/null || echo "")
+    local_self=$(peers_self_id)
     if [[ -n "$local_self" ]]; then
       pass "Self-peer found: $local_self"
     else
@@ -337,7 +337,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     [[ -z "$peer_id" ]] && continue
 
     # Token file
-    tf=$(jq -r --arg p "$peer_id" '.[$p].token_file // empty' "$PEERS_FILE" 2>/dev/null)
+    tf=$(peers_get "$peer_id" token_file)
     if [[ -n "$tf" ]]; then
       # Resolve relative paths
       [[ "$tf" != /* ]] && tf="$SKILL_DIR/$tf"
@@ -356,7 +356,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     fi
 
     # Peer secret file
-    psf=$(jq -r --arg p "$peer_id" '.[$p].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null)
+    psf=$(peers_get "$peer_id" peer_secret_file)
     if [[ -n "$psf" ]]; then
       [[ "$psf" != /* ]] && psf="$SKILL_DIR/$psf"
 
@@ -369,7 +369,7 @@ if [[ -f "$PEERS_FILE" ]]; then
           hint "chmod 600 $psf"
         fi
       else
-        is_self_check=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+        is_self_check=$(peers_get "$peer_id" self)
         if [[ "$is_self_check" == "true" ]]; then
           fail "$peer_id (self): identity secret missing: $psf"
           hint "Run: antenna setup (or openssl rand -hex 32 > $psf && chmod 600 $psf)"
@@ -379,13 +379,13 @@ if [[ -f "$PEERS_FILE" ]]; then
         fi
       fi
     else
-      is_self=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+      is_self=$(peers_get "$peer_id" self)
       if [[ "$is_self" == "true" ]]; then
         warn "$peer_id (self): no peer_secret_file configured"
         hint "Run: antenna setup --force (or add peer_secret_file to your self-peer entry)"
       fi
     fi
-  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
+  done < <(peers_list_ids)
 else
   warn "Cannot check secrets — no peers file"
 fi
@@ -400,10 +400,10 @@ if [[ -f "$PEERS_FILE" ]]; then
   while IFS= read -r peer_id; do
     [[ -z "$peer_id" ]] && continue
 
-    is_self=$(jq -r --arg p "$peer_id" '.[$p].self // false' "$PEERS_FILE" 2>/dev/null)
+    is_self=$(peers_get "$peer_id" self)
     [[ "$is_self" == "true" ]] && continue
 
-    peer_url=$(jq -r --arg p "$peer_id" '.[$p].url // empty' "$PEERS_FILE" 2>/dev/null)
+    peer_url=$(peers_get "$peer_id" url)
     [[ -z "$peer_url" ]] && continue
 
     # Quick reachability check (5s timeout)
@@ -421,7 +421,7 @@ if [[ -f "$PEERS_FILE" ]]; then
     else
       warn "$peer_id ($peer_url): responded with HTTP $http_code"
     fi
-  done < <(jq -r "$PEER_JQ_KEYS" "$PEERS_FILE" 2>/dev/null)
+  done < <(peers_list_ids)
 else
   warn "Cannot check connectivity — no peers file"
 fi
