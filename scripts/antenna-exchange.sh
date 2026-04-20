@@ -378,6 +378,178 @@ default_himalaya_account() {
   himalaya account list -o json 2>/dev/null | jq -r 'map(select(.default == true)) | .[0].name // empty' 2>/dev/null || true
 }
 
+# REF-616: himalaya v1.2.0 does not expose per-account email addresses via its
+# JSON CLI output (`himalaya account list -o json` returns only name/backend/default).
+# The configured address lives in the TOML config. Read it directly, honoring
+# $HIMALAYA_CONFIG first, then $XDG_CONFIG_HOME/himalaya/config.toml, then
+# $HOME/.config/himalaya/config.toml. Returns empty if the account or its
+# email key cannot be found.
+himalaya_config_path() {
+  if [[ -n "${HIMALAYA_CONFIG:-}" && -f "$HIMALAYA_CONFIG" ]]; then
+    printf '%s\n' "$HIMALAYA_CONFIG"
+    return 0
+  fi
+  local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
+  if [[ -f "$xdg/himalaya/config.toml" ]]; then
+    printf '%s\n' "$xdg/himalaya/config.toml"
+    return 0
+  fi
+  if [[ -f "$HOME/.config/himalaya/config.toml" ]]; then
+    printf '%s\n' "$HOME/.config/himalaya/config.toml"
+    return 0
+  fi
+  return 0  # empty output, caller handles
+}
+
+himalaya_account_email() {
+  local want_account="$1"
+  [[ -n "$want_account" ]] || return 0
+  local cfg_file
+  cfg_file="$(himalaya_config_path)"
+  [[ -n "$cfg_file" && -f "$cfg_file" ]] || return 0
+  awk -v a="$want_account" '
+    /^\[accounts\./ {
+      in_sec = ($0 == "[accounts." a "]")
+      next
+    }
+    /^\[/ { in_sec = 0; next }
+    in_sec && /^[[:space:]]*email[[:space:]]*=/ {
+      sub(/^[[:space:]]*email[[:space:]]*=[[:space:]]*"/, "")
+      sub(/".*$/, "")
+      print
+      exit
+    }
+  ' "$cfg_file"
+}
+
+# Emits one TSV line per configured himalaya account: name<TAB>email<TAB>default
+# where "default" is "true" or "false". Accounts without a resolvable email
+# are skipped (they would hard-fail at send time anyway).
+himalaya_accounts_list() {
+  have_cmd himalaya || return 0
+  local names_json names default_json default_name name email
+  names_json="$(himalaya account list -o json 2>/dev/null || true)"
+  [[ -n "$names_json" ]] || return 0
+  default_name="$(printf '%s' "$names_json" | jq -r 'map(select(.default == true)) | .[0].name // empty' 2>/dev/null || true)"
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    email="$(himalaya_account_email "$name")"
+    [[ -n "$email" ]] || continue
+    if [[ "$name" == "$default_name" ]]; then
+      printf '%s\t%s\ttrue\n' "$name" "$email"
+    else
+      printf '%s\t%s\tfalse\n' "$name" "$email"
+    fi
+  done < <(printf '%s' "$names_json" | jq -r '.[].name // empty' 2>/dev/null || true)
+}
+
+# REF-616: selection-only account picker. Takes the current account name as
+# $1 and prints the chosen account name to stdout. UX is tightly constrained:
+# the caller has already confirmed a default; this is only invoked when the
+# operator wants to switch to a different configured account. No free text is
+# accepted — only a numeric selection from the available accounts.
+select_himalaya_account() {
+  local current_account="$1"
+  local -a names=() emails=() defaults=()
+  local line name email is_default
+  while IFS=$'\t' read -r name email is_default; do
+    [[ -n "$name" ]] || continue
+    names+=("$name")
+    emails+=("$email")
+    defaults+=("$is_default")
+  done < <(himalaya_accounts_list)
+
+  if (( ${#names[@]} == 0 )); then
+    # Should not reach here (caller checks first), but bail safely.
+    printf '%s\n' "$current_account" >&2
+    printf '%s\n' "$current_account"
+    return 0
+  fi
+
+  echo >&2
+  echo -e "${BOLD}Available himalaya accounts:${NC}" >&2
+  local i
+  for (( i=0; i<${#names[@]}; i++ )); do
+    local marker=""
+    [[ "${defaults[i]}" == "true" ]] && marker="  (default)"
+    [[ "${names[i]}" == "$current_account" ]] && marker="${marker}  ${DIM}← current${NC}"
+    printf '  %d) %-20s %s%b\n' "$((i+1))" "${names[i]}" "${emails[i]}" "$marker" >&2
+  done
+  echo >&2
+
+  # Default the picker to the current selection's index.
+  local default_idx=1
+  for (( i=0; i<${#names[@]}; i++ )); do
+    if [[ "${names[i]}" == "$current_account" ]]; then
+      default_idx=$((i+1))
+      break
+    fi
+  done
+
+  local choice
+  prompt choice "Select account [1-${#names[@]}]" "$default_idx"
+  # Strict numeric validation — no free text.
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 )) || (( choice > ${#names[@]} )); then
+    warn "Invalid selection '$choice'; keeping current account '$current_account'." >&2
+    printf '%s\n' "$current_account"
+    return 0
+  fi
+  printf '%s\n' "${names[$((choice-1))]}"
+}
+
+# REF-616: interactive From confirm loop. Takes an initial account name (must
+# already have a resolvable email) and loops:
+#   - display From / To / Subject
+#   - [Y/n/change-account] when >1 configured account available
+#   - [Y/n] when only 1 configured account
+# Prints the confirmed account name to stdout on accept, or empty on abort.
+confirm_from_account() {
+  local account="$1" email_to="$2" subject="$3"
+  local account_count
+  account_count="$(himalaya_accounts_list | wc -l | awk '{print $1}')"
+  local email
+
+  while true; do
+    email="$(himalaya_account_email "$account")"
+    echo >&2
+    echo -e "${BOLD}Send email${NC}" >&2
+    printf '  %-9s %s  %s(himalaya account %s%s%s)%s\n' \
+      "From:" "$email" "$DIM" "'" "$account" "'" "$NC" >&2
+    printf '  %-9s %s\n' "To:" "$email_to" >&2
+    printf '  %-9s %s\n' "Subject:" "$subject" >&2
+    echo >&2
+
+    local choices_label default_choice reply
+    if (( account_count > 1 )); then
+      choices_label="Send? [Y/n/change-account]"
+      default_choice="y"
+    else
+      choices_label="Send? [Y/n]"
+      default_choice="y"
+    fi
+    read -rp "$(echo -e "${CYAN}?${NC}  ${choices_label} [${default_choice}]: ")" reply
+    reply="${reply:-$default_choice}"
+    reply="${reply,,}"
+
+    case "$reply" in
+      y|yes) printf '%s\n' "$account"; return 0 ;;
+      n|no)  printf '' ; return 1 ;;
+      c|change|change-account|a|account)
+        if (( account_count <= 1 )); then
+          warn "Only one himalaya account is configured ('$account'); nothing to switch to." >&2
+          continue
+        fi
+        account="$(select_himalaya_account "$account")"
+        continue
+        ;;
+      *)
+        warn "Please answer y (send), n (abort), or change-account (switch account)." >&2
+        continue
+        ;;
+    esac
+  done
+}
+
 send_bundle_email() {
   local email_to="$1" bundle_file="$2" peer_id="$3" account="${4:-}"
   [[ -f "$bundle_file" ]] || die "Bundle file not found: $bundle_file"
@@ -421,11 +593,20 @@ bundle text, as email formatting may corrupt the base64 encoding."
     fi
     [[ -n "$account" ]] || die "No email account found. Install gog or himalaya, or use the bundle file manually."
 
+    # REF-616: resolve the account's real email from himalaya config.toml.
+    # Hard-fail if the account is not configured with an email — never fall
+    # back to antenna@localhost (SMTP relays reject it or spam-filter it).
+    local from_addr
+    from_addr="$(himalaya_account_email "$account")"
+    if [[ -z "$from_addr" ]]; then
+      local cfg_hint
+      cfg_hint="$(himalaya_config_path)"
+      [[ -n "$cfg_hint" ]] || cfg_hint="${XDG_CONFIG_HOME:-$HOME/.config}/himalaya/config.toml"
+      die "Could not resolve email address for himalaya account '$account'. Check [accounts.$account].email in $cfg_hint"
+    fi
+
     local raw_file bundle_b64
     bundle_b64=$(base64 "$bundle_file")
-    local from_addr
-    from_addr=$(himalaya account list -a "$account" -o json 2>/dev/null | jq -r '.[0].email // empty' 2>/dev/null || true)
-    [[ -n "$from_addr" ]] || from_addr="antenna@localhost"
 
     raw_file=$(mktemp)
     cat > "$raw_file" <<EOF
@@ -451,7 +632,7 @@ ${bundle_b64}
 EOF
     himalaya message send -a "$account" < "$raw_file" >/dev/null
     rm -f "$raw_file"
-    ok "Sent encrypted bundle email to $email_to via himalaya"
+    ok "Sent encrypted bundle email to $email_to via himalaya ($from_addr)"
     return 0
   fi
 
@@ -681,18 +862,22 @@ run_bundle_command() {
     # Interactive: offer to email the bundle
     echo
     if prompt_yn "Email this bundle to the peer?" "y"; then
-      local interactive_email interactive_account
+      local interactive_email interactive_account=""
       prompt interactive_email "Recipient email address"
       if [[ -n "$interactive_email" ]]; then
-        interactive_account=""
+        # REF-616: selection-only From confirmation. If himalaya is present
+        # and at least one account resolves to a real email, show the
+        # From/To/Subject preview and let the operator Y / n / change-account.
+        # No free-text account name entry.
         if have_cmd himalaya; then
           local default_acct
           default_acct="$(default_himalaya_account)"
-          if [[ -n "$default_acct" ]]; then
-            if ! prompt_yn "Send from himalaya account '$default_acct'?" "y"; then
-              prompt interactive_account "Himalaya account name"
-            else
-              interactive_account="$default_acct"
+          if [[ -n "$default_acct" ]] && [[ -n "$(himalaya_account_email "$default_acct")" ]]; then
+            local bundle_subject="Antenna bootstrap bundle from $(self_id) for ${peer_id}"
+            interactive_account="$(confirm_from_account "$default_acct" "$interactive_email" "$bundle_subject" || true)"
+            if [[ -z "$interactive_account" ]]; then
+              info "Email aborted. Bundle file remains at: $output_file"
+              return 0
             fi
           fi
         fi
@@ -956,9 +1141,16 @@ Or save the attached .agepub file and use:
     fi
     [[ -n "$account" ]] || { rm -f "$pubkey_file"; die "No email account found."; }
 
+    # REF-616: resolve account email from himalaya config.toml — no antenna@localhost fallback.
     local from_addr raw_file
-    from_addr=$(himalaya account list -a "$account" -o json 2>/dev/null | jq -r '.[0].email // empty' 2>/dev/null || true)
-    [[ -n "$from_addr" ]] || from_addr="antenna@localhost"
+    from_addr="$(himalaya_account_email "$account")"
+    if [[ -z "$from_addr" ]]; then
+      rm -f "$pubkey_file"
+      local cfg_hint
+      cfg_hint="$(himalaya_config_path)"
+      [[ -n "$cfg_hint" ]] || cfg_hint="${XDG_CONFIG_HOME:-$HOME/.config}/himalaya/config.toml"
+      die "Could not resolve email address for himalaya account '$account'. Check [accounts.$account].email in $cfg_hint"
+    fi
 
     raw_file=$(mktemp)
     cat > "$raw_file" <<EOF
@@ -983,7 +1175,7 @@ ${pubkey}
 EOF
     himalaya message send -a "$account" < "$raw_file" >/dev/null
     rm -f "$raw_file" "$pubkey_file"
-    ok "Sent exchange public key to $email_to via himalaya"
+    ok "Sent exchange public key to $email_to via himalaya ($from_addr)"
     return 0
   fi
 
@@ -1022,18 +1214,19 @@ cmd_pubkey() {
       # Interactive: offer to email
       echo
       if prompt_yn "Email this public key to a peer?" "y"; then
-        local interactive_email interactive_account
+        local interactive_email interactive_account=""
         prompt interactive_email "Recipient email address"
         if [[ -n "$interactive_email" ]]; then
-          interactive_account=""
+          # REF-616: selection-only From confirmation (see send_bundle_email path).
           if have_cmd himalaya; then
             local default_acct
             default_acct="$(default_himalaya_account)"
-            if [[ -n "$default_acct" ]]; then
-              if ! prompt_yn "Send from himalaya account '$default_acct'?" "y"; then
-                prompt interactive_account "Himalaya account name"
-              else
-                interactive_account="$default_acct"
+            if [[ -n "$default_acct" ]] && [[ -n "$(himalaya_account_email "$default_acct")" ]]; then
+              local pubkey_subject="Antenna exchange public key from $(self_id)"
+              interactive_account="$(confirm_from_account "$default_acct" "$interactive_email" "$pubkey_subject" || true)"
+              if [[ -z "$interactive_account" ]]; then
+                info "Email aborted."
+                return 0
               fi
             fi
           fi
