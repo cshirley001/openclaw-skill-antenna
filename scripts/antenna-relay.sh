@@ -160,6 +160,17 @@ TIMESTAMP=$(sanitize_log_value "$TIMESTAMP" 32)
 SUBJECT=$(sanitize_log_value "$SUBJECT" 200)
 USER_NAME=$(sanitize_log_value "$USER_NAME" 64)
 
+# ── REF-1502: extract optional correlation nonce from body ──────────────────
+# The body may contain a `nonce: <value>` line (used by antenna-model-test.sh
+# and anyone else who wants log correlation). Extract it with a strict
+# character class to prevent log injection / ANSI / gigantic values. Default
+# to `-` (absent) when nothing valid is present. This is NOT authentication;
+# peers_get + peer secret verification already did that. The nonce is purely
+# for scoping a receiver-side log scan to one caller's message.
+NONCE=$(echo "$BODY" | grep -m1 -E '^nonce:[[:space:]]*[A-Za-z0-9_-]{1,40}[[:space:]]*$' \
+  | sed -E 's/^nonce:[[:space:]]*([A-Za-z0-9_-]{1,40})[[:space:]]*$/\1/' || true)
+NONCE="${NONCE:--}"
+
 # ── Validate required fields ────────────────────────────────────────────────
 
 if [[ -z "$FROM" ]]; then
@@ -320,7 +331,7 @@ BODY_LEN=${#BODY}
 
 if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
   json_reject "Message body exceeds max length ($BODY_LEN > $MAX_LEN chars)" "$FROM"
-  log_entry "INBOUND  | from:$FROM | status:REJECTED (over max length: $BODY_LEN > $MAX_LEN)"
+  log_entry "INBOUND  | from:$FROM | nonce:$NONCE | status:REJECTED (over max length: $BODY_LEN > $MAX_LEN)"
   exit 0
 fi
 
@@ -345,7 +356,7 @@ session_allowed() {
 
 if ! session_allowed "$TARGET_SESSION"; then
   json_reject "Session target '$TARGET_SESSION' not in allowed_inbound_sessions" "$FROM"
-  log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:REJECTED (session not allowed)"
+  log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | nonce:$NONCE | status:REJECTED (session not allowed)"
   exit 0
 fi
 
@@ -414,7 +425,7 @@ ${BODY}"
     
     # Output queued response
     echo "$QUEUE_RESULT"
-    log_entry "INBOUND  | from:$FROM | session:$RESOLVED_SESSION | status:queued | chars:$BODY_LEN"
+    log_entry "INBOUND  | from:$FROM | session:$RESOLVED_SESSION | nonce:$NONCE | status:queued | chars:$BODY_LEN"
     exit 0
   fi
   # Auto-approved peers fall through to normal relay
@@ -451,7 +462,7 @@ ${BODY}"
 
 # ── Log ──────────────────────────────────────────────────────────────────────
 
-log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:relayed | chars:$BODY_LEN"
+log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | nonce:$NONCE | status:relayed | chars:$BODY_LEN"
 
 # Check if verbose logging is enabled
 LOG_VERBOSE=$(config_log_verbose)

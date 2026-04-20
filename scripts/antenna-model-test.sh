@@ -213,12 +213,19 @@ This is an automated relay test verifying that ${MODEL} can serve as the Antenna
   fi
 
   # ── Poll log for THIS run's relay confirmation ─────────────────────────
+  # REF-1502: match on nonce, not just session. A bare session match can be
+  # satisfied by a concurrent `antenna test` run, or any other inbound message
+  # arriving at the same allowlisted session while we're polling. The relay
+  # logs `nonce:$NONCE` on every INBOUND line that has body context; we
+  # require OUR nonce here.
+  #
   # Strategy:
-  #   - Look for OUTBOUND (our send) followed by a matching INBOUND in new lines only
-  #   - PASS = INBOUND with session:$TEST_SESSION and status:relayed
-  #   - MALFORMED/REJECTED are only counted if no PASS appears by timeout
-  #     (a stale MALFORMED from a prior run's delayed processing shouldn't poison us)
-  #   - We check every second until timeout
+  #   - Look for INBOUND lines added since our send
+  #   - PASS = INBOUND with nonce:$TEST_NONCE and status:relayed
+  #     (session match is implied by the nonce — stronger scope)
+  #   - A nonce-scoped REJECTED short-circuits the poll with a real reason
+  #   - MALFORMED/REJECTED pre-body paths have no nonce, so they fall through
+  #     to the best-effort unscoped fallback below
 
   RESULT="timeout"
   DEADLINE=$(( $(date +%s) + TIMEOUT ))
@@ -231,35 +238,54 @@ This is an automated relay test verifying that ${MODEL} can serve as the Antenna
     NEW_LINES=$(tail -n +"$((LOG_LINES_BEFORE + 1))" "$LOG_PATH" 2>/dev/null || true)
     [[ -z "$NEW_LINES" ]] && continue
 
-    # Check for success first — this is the definitive signal
-    if echo "$NEW_LINES" | grep -q "INBOUND.*session:${TEST_SESSION}.*status:relayed"; then
+    # Check for success first — this is the definitive, nonce-scoped signal
+    if echo "$NEW_LINES" | grep -q "INBOUND.*nonce:${TEST_NONCE}.*status:relayed"; then
       RESULT="pass"
+      break
+    fi
+    # Nonce-scoped REJECTED lets us fail fast with a specific reason
+    # instead of waiting out the full timeout.
+    if echo "$NEW_LINES" | grep -q "INBOUND.*nonce:${TEST_NONCE}.*status:REJECTED"; then
+      RESULT="rejected"
       break
     fi
   done
 
-  # If we timed out, check what DID appear for a better error message
+  # Classify the outcome for a better error message.
   REJECT_REASON=""
-  if [[ "$RESULT" == "timeout" && -f "$LOG_PATH" ]]; then
+  if [[ "$RESULT" == "timeout" || "$RESULT" == "rejected" ]] && [[ -f "$LOG_PATH" ]]; then
     NEW_LINES=$(tail -n +"$((LOG_LINES_BEFORE + 1))" "$LOG_PATH" 2>/dev/null || true)
-    if echo "$NEW_LINES" | grep -q "INBOUND.*status:MALFORMED"; then
-      RESULT="malformed"
-    elif echo "$NEW_LINES" | grep -q "INBOUND.*status:REJECTED"; then
+
+    # Prefer a nonce-scoped REJECTED line — that's definitively OUR message.
+    SCOPED_REJ=$(echo "$NEW_LINES" | grep -E "INBOUND.*nonce:${TEST_NONCE}.*status:REJECTED" | tail -1 || true)
+    if [[ -n "$SCOPED_REJ" ]]; then
       RESULT="rejected"
-      # Pick the most specific rejection reason from the log line
-      if echo "$NEW_LINES" | grep -q 'session not allowed'; then
+      if echo "$SCOPED_REJ" | grep -q 'session not allowed'; then
         REJECT_REASON="session '$TEST_SESSION' not in allowlist"
-      elif echo "$NEW_LINES" | grep -q 'rate limit'; then
+      elif echo "$SCOPED_REJ" | grep -q 'rate limit'; then
         REJECT_REASON="rate limit exceeded"
-      elif echo "$NEW_LINES" | grep -q 'invalid peer secret'; then
-        REJECT_REASON="invalid peer secret (run: antenna peers exchange)"
-      elif echo "$NEW_LINES" | grep -q 'missing auth header\|missing auth\|auth failure'; then
-        REJECT_REASON="auth failure"
-      elif echo "$NEW_LINES" | grep -q 'peer not allowed'; then
-        REJECT_REASON="sender peer not in allowed_inbound_peers"
+      elif echo "$SCOPED_REJ" | grep -q 'over max length'; then
+        REJECT_REASON="message over max length"
       else
-        # Fall back to whatever the log records in parens after REJECTED
-        REJECT_REASON=$(echo "$NEW_LINES" | grep 'INBOUND.*status:REJECTED' | tail -1 | sed -n 's/.*status:REJECTED (\([^)]*\)).*/\1/p')
+        REJECT_REASON=$(echo "$SCOPED_REJ" | sed -n 's/.*status:REJECTED (\([^)]*\)).*/\1/p')
+      fi
+    elif [[ "$RESULT" == "timeout" ]]; then
+      # Fallback: pre-body-parse MALFORMED/REJECTED lines have no nonce so
+      # they can't be definitively attributed to us, but they're rare and
+      # usually affect everyone, so surface them as a best-effort hint.
+      if echo "$NEW_LINES" | grep -q "INBOUND.*status:MALFORMED"; then
+        RESULT="malformed"
+      elif echo "$NEW_LINES" | grep -q "INBOUND.*status:REJECTED"; then
+        RESULT="rejected"
+        if echo "$NEW_LINES" | grep -q 'invalid peer secret'; then
+          REJECT_REASON="invalid peer secret (run: antenna peers exchange)"
+        elif echo "$NEW_LINES" | grep -q 'missing auth header\|missing auth\|auth failure'; then
+          REJECT_REASON="auth failure"
+        elif echo "$NEW_LINES" | grep -q 'peer not allowed'; then
+          REJECT_REASON="sender peer not in allowed_inbound_peers"
+        else
+          REJECT_REASON=$(echo "$NEW_LINES" | grep 'INBOUND.*status:REJECTED' | tail -1 | sed -n 's/.*status:REJECTED (\([^)]*\)).*/\1/p')
+        fi
       fi
     fi
   fi
