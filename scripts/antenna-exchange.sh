@@ -551,9 +551,14 @@ legacy_import_runtime_secret() {
   log_entry "LEGACY-IMPORT | peer:${peer_id} | status:ok"
 }
 
-build_plaintext_bundle() {
+# REF-603: stream the plaintext bundle JSON to stdout instead of landing it on
+# disk. Callers pipe this directly into `age` so the runtime identity secret,
+# hooks token, and exchange key never touch the filesystem in cleartext. The
+# old temp-file variant had no cleanup trap, so a mid-flow `die` (bad pubkey,
+# disk full) or SIGINT would leave `/tmp/tmp.XXXXXXXX` behind with full secrets.
+build_plaintext_bundle_stdout() {
   local target_peer_id="$1" notes="$2"
-  local sid display_name endpoint agent_id token_file token secret_file secret exchange_pubkey bundle_json
+  local sid display_name endpoint agent_id token_file token secret_file secret exchange_pubkey
   sid="$(self_id)"
   [[ -n "$sid" ]] || die "No self peer found in peers file. Run 'antenna setup' first."
 
@@ -575,7 +580,6 @@ build_plaintext_bundle() {
   exchange_pubkey="$(current_exchange_pubkey)"
   validate_age_pubkey "$exchange_pubkey"
 
-  bundle_json=$(mktemp)
   jq -n \
     --arg generated_at "$(now_iso)" \
     --arg expires_at "$(expiry_iso)" \
@@ -604,19 +608,20 @@ build_plaintext_bundle() {
       from_exchange_pubkey: $from_exchange_pubkey,
       expected_peer_id: (if $expected_peer_id == "" then null else $expected_peer_id end),
       notes: (if $notes == "" then null else $notes end)
-    }' > "$bundle_json"
-  printf '%s\n' "$bundle_json"
+    }'
 }
 
-encrypt_bundle_to_file() {
-  local bundle_json="$1" recipient_pubkey="$2" output_file="$3"
+# REF-603: encrypt straight from stdin so the plaintext bundle never exists as
+# a file. `age` already supports stdin input when given `-` as its input arg.
+encrypt_bundle_from_stdin() {
+  local recipient_pubkey="$1" output_file="$2"
   mkdir -p "$(dirname "$output_file")"
-  age -a -r "$recipient_pubkey" -o "$output_file" "$bundle_json"
+  age -a -r "$recipient_pubkey" -o "$output_file" -
 }
 
 run_bundle_command() {
   local mode="$1" peer_id="$2" pubkey_arg="$3" pubkey_file_arg="$4" email="$5" account="$6" output_path="$7" print_bundle="$8" send_email="$9" notes="${10}" assume_yes="${11}" legacy_mode="${12}"
-  local recipient_pubkey self_peer bundle_json output_file existing_pubkey display_name
+  local recipient_pubkey self_peer output_file existing_pubkey display_name
 
   self_peer="$(self_id)"
   [[ -n "$self_peer" ]] || die "No self peer found in peers file. Run 'antenna setup' first."
@@ -645,11 +650,14 @@ run_bundle_command() {
   [[ -n "$recipient_pubkey" ]] || die "No recipient exchange public key provided. Use --pubkey, --pubkey-file, or store exchange_public_key for that peer."
   validate_age_pubkey "$recipient_pubkey"
 
-  bundle_json="$(build_plaintext_bundle "$peer_id" "$notes")"
   output_file="${output_path:-$(default_output_path "$self_peer" "$peer_id")}"
   output_file="$(resolve_path "$output_file")"
-  encrypt_bundle_to_file "$bundle_json" "$recipient_pubkey" "$output_file"
-  rm -f "$bundle_json"
+  # REF-603: stream plaintext JSON directly from jq into age. The plaintext
+  # (which carries from_identity_secret, from_hooks_token, from_exchange_pubkey)
+  # exists only in the pipe between processes and is never written to disk.
+  # If age fails, the pipe fails loudly via set -o pipefail and no output file
+  # is created; there is nothing on disk to leak or clean up.
+  build_plaintext_bundle_stdout "$peer_id" "$notes" | encrypt_bundle_from_stdin "$recipient_pubkey" "$output_file"
 
   display_name="$(peer_field "$peer_id" 'display_name')"
   ok "Created encrypted bootstrap bundle for $peer_id${display_name:+ ($display_name)}"
@@ -782,6 +790,20 @@ import_bundle() {
   local hooks_token identity_secret
 
   bundle_json="$(decrypt_bundle_to_json "$input_path")"
+  # REF-603: the decrypted bundle contains from_identity_secret + from_hooks_token
+  # in cleartext on disk. Guarantee cleanup on EVERY exit path, including any
+  # `die` from validate_bundle_json / validate_bundle_freshness / print_import_preview,
+  # SIGINT during the confirm prompt, or a failure of the write steps below.
+  # Previously only happy-path `rm -f` calls ran, so a failed validate could
+  # leave the plaintext sitting in /tmp until the next reboot.
+  #
+  # The trap command uses double quotes so "$bundle_json" is expanded now, at
+  # trap-install time. This matters because bundle_json is `local`: under
+  # `set -u`, a trap that referenced it at fire time (after the local scope
+  # collapses on RETURN) would blow up with "unbound variable". mktemp paths
+  # are safe to embed verbatim — no shell metachars.
+  # shellcheck disable=SC2064
+  trap "rm -f '$bundle_json' 2>/dev/null || true" RETURN EXIT INT TERM
   validate_bundle_json "$bundle_json"
   validate_bundle_freshness "$bundle_json" "$force_expired"
 
@@ -805,8 +827,9 @@ import_bundle() {
   # The self-peer is determined by '.self: true' in antenna-peers.json, not
   # by the from_peer_id in an (even validly encrypted) bundle. Refuse before
   # any writes occur; no --yes override is accepted for this condition.
+  # REF-603: the RETURN/EXIT trap installed above handles bundle_json removal;
+  # no explicit `rm -f` needed here.
   if [[ "$peer_id" == "$self_peer" ]]; then
-    rm -f "$bundle_json"
     log_entry "INBOUND-BOOTSTRAP | from:${peer_id} | status:refused | reason:self_identity_collision"
     die "Refusing import: bundle claims peer_id='${peer_id}', which is this host's own self-peer.
 
@@ -874,7 +897,8 @@ them re-run 'antenna setup' with a distinct peer_id and issue a new bundle."
 
   echo
   info "Next step: if you need to reciprocate, run: antenna peers exchange reply $peer_id"
-  rm -f "$bundle_json"
+  # REF-603: bundle_json removal is handled by the RETURN/EXIT trap installed at
+  # the top of import_bundle. Nothing to do here.
 }
 
 cmd_keygen() {
