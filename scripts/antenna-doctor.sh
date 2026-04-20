@@ -19,6 +19,8 @@ PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -300,7 +302,7 @@ fi
 echo -e "${BOLD}5b. Session Allowlist${NC}"
 
 if [[ -f "$CONFIG_FILE" ]]; then
-  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  local_agent=$(config_local_agent_id)
 
   needs_main="agent:${local_agent}:main"
   needs_antenna="agent:${local_agent}:antenna"

@@ -20,6 +20,8 @@ AGENT_INSTRUCTIONS="$SKILL_DIR/agent/AGENTS.md"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -568,7 +570,7 @@ call_model_api() {
 # ── Self peer ────────────────────────────────────────────────────────────────
 
 SELF_PEER=$(peers_self_id)
-LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+LOCAL_AGENT=$(config_local_agent_id)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TIER A: Script validation
@@ -722,7 +724,7 @@ Test body
 
   # ── A.6: Oversized message → rejected ──
   local max_len
-  max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null)
+  max_len=$(config_max_message_length)
   local big_body
   big_body=$(head -c $((max_len + 100)) /dev/urandom | base64 | head -c $((max_len + 100)))
   local oversize

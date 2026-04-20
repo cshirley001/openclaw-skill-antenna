@@ -16,6 +16,8 @@ CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,8 +64,8 @@ sanitize_log_value() {
 
 log_entry() {
   local log_enabled log_path
-  log_enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
-  log_path=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+  log_enabled=$(config_log_enabled)
+  log_path=$(config_log_path)
 
   if [[ "$log_enabled" != "true" ]]; then
     return 0
@@ -168,9 +170,9 @@ fi
 
 if [[ -z "$TARGET_SESSION" ]]; then
   # Use default from config; if absent, build full key for main session
-  TARGET_SESSION=$(jq -r '.default_target_session // empty' "$CONFIG_FILE" 2>/dev/null || true)
+  TARGET_SESSION=$(config_default_target_session)
   if [[ -z "$TARGET_SESSION" ]]; then
-    LOCAL_AGENT=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+    LOCAL_AGENT=$(config_local_agent_id)
     TARGET_SESSION="agent:${LOCAL_AGENT}:main"
   fi
 fi
@@ -252,8 +254,8 @@ fi
 
 RATE_LIMIT_FILE="$SKILL_DIR/antenna-ratelimit.json"
 RATE_LIMIT_LOCK_FILE="${RATE_LIMIT_FILE}.lock"
-PEER_LIMIT=$(jq -r '.rate_limit.per_peer_per_minute // 10' "$CONFIG_FILE" 2>/dev/null || echo "10")
-GLOBAL_LIMIT=$(jq -r '.rate_limit.global_per_minute // 30' "$CONFIG_FILE" 2>/dev/null || echo "30")
+PEER_LIMIT=$(config_rate_limit_per_peer)
+GLOBAL_LIMIT=$(config_rate_limit_global)
 
 mkdir -p "$(dirname "$RATE_LIMIT_FILE")"
 if [[ ! -f "$RATE_LIMIT_FILE" ]]; then
@@ -313,7 +315,7 @@ fi
 
 # ── Validate message length ─────────────────────────────────────────────────
 
-MAX_LEN=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
+MAX_LEN=$(config_max_message_length)
 BODY_LEN=${#BODY}
 
 if [[ "$BODY_LEN" -gt "$MAX_LEN" ]]; then
@@ -324,7 +326,7 @@ fi
 
 # ── Inbox queue check ────────────────────────────────────────────────────────
 
-INBOX_ENABLED=$(jq -r '.inbox_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+INBOX_ENABLED=$(config_inbox_enabled)
 
 if [[ "$INBOX_ENABLED" == "true" ]]; then
   # Check auto-approve list
@@ -447,7 +449,7 @@ ${BODY}"
 log_entry "INBOUND  | from:$FROM | session:$TARGET_SESSION | status:relayed | chars:$BODY_LEN"
 
 # Check if verbose logging is enabled
-LOG_VERBOSE=$(jq -r '.log_verbose // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+LOG_VERBOSE=$(config_log_verbose)
 if [[ "$LOG_VERBOSE" == "true" ]]; then
   PREVIEW=$(sanitize_log_value "${BODY:0:100}" 100)
   log_entry "INBOUND  | from:$FROM | preview:${PREVIEW}..."

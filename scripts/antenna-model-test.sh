@@ -16,8 +16,10 @@ PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
-LOG_PATH=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+LOG_PATH=$(config_log_path)
 SEND_SCRIPT="$SCRIPT_DIR/antenna-send.sh"
 
 # Resolve relative log path
@@ -77,7 +79,7 @@ if [[ -z "$SELF_PEER" ]]; then
   exit 1
 fi
 
-ORIGINAL_MODEL=$(jq -r '.relay_agent_model // "unset"' "$CONFIG_FILE")
+ORIGINAL_MODEL=$(config_relay_agent_model)
 
 # ── Restore handler ──────────────────────────────────────────────────────────
 

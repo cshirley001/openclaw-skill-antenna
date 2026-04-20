@@ -31,6 +31,8 @@ CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,8 +40,8 @@ die() { echo "{\"error\":\"$1\"}" >&2; exit "${2:-1}"; }
 
 log_entry() {
   local log_enabled log_path
-  log_enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
-  log_path=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+  log_enabled=$(config_log_enabled)
+  log_path=$(config_log_path)
 
   if [[ "$log_enabled" != "true" ]]; then return 0; fi
 
@@ -128,7 +130,7 @@ TOKEN=$(cat "$TOKEN_FILE")
 
 # ── Load config defaults ────────────────────────────────────────────────────
 
-MAX_LEN=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
+MAX_LEN=$(config_max_message_length)
 
 # Session resolution:
 # - If --session was explicitly provided, include target_session in envelope.

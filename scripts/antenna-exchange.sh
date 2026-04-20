@@ -24,6 +24,8 @@ SECRETS_DIR="$SKILL_DIR/secrets"
 
 # shellcheck source=../lib/peers.sh
 source "$SKILL_DIR/lib/peers.sh"
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
 EXCHANGE_KEY_FILE="$SECRETS_DIR/antenna-exchange.agekey"
 EXCHANGE_PUB_FILE="$SECRETS_DIR/antenna-exchange.agepub"
 FALLBACK_LEGACY=false
@@ -166,13 +168,13 @@ self_field() {
 
 log_path() {
   local p
-  p=$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")
+  p=$(config_log_path)
   [[ "$p" == /* ]] && printf '%s\n' "$p" || printf '%s\n' "$SKILL_DIR/$p"
 }
 
 log_entry() {
   local enabled path
-  enabled=$(jq -r '.log_enabled // true' "$CONFIG_FILE" 2>/dev/null || echo "true")
+  enabled=$(config_log_enabled)
   [[ "$enabled" == "true" ]] || return 0
   path="$(log_path)"
   mkdir -p "$(dirname "$path")"
@@ -541,7 +543,7 @@ build_plaintext_bundle() {
   endpoint="$(self_field 'url')"
   agent_id="$(self_field 'agentId')"
   [[ -n "$endpoint" ]] || die "Self peer is missing url in antenna-peers.json"
-  [[ -n "$agent_id" ]] || agent_id="$(jq -r '.relay_agent_id // "antenna"' "$CONFIG_FILE" 2>/dev/null || echo "antenna")"
+  [[ -n "$agent_id" ]] || agent_id="$(config_relay_agent_id)"
 
   token_file="$(self_hooks_token_file)"
   token="$(read_token_file "$token_file")"

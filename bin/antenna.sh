@@ -34,6 +34,9 @@ _fix_perms
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
+# shellcheck source=../lib/config.sh
+source "$SKILL_DIR/lib/config.sh"
+
 # ── Peer-shape validation helpers ────────────────────────────────────────────
 # Only iterate entries that look like real peers (object with a .url string).
 # This prevents legacy/malformed nested objects from polluting peer lists.
@@ -78,7 +81,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
   esac
 fi
 
-LOG_FILE="$SKILL_DIR/$(jq -r '.log_path // "antenna.log"' "$CONFIG_FILE" 2>/dev/null || echo "antenna.log")"
+LOG_FILE="$SKILL_DIR/$(config_log_path)"
 
 usage() {
   cat <<'EOF'
@@ -474,7 +477,7 @@ cmd_sessions() {
 
   local key="allowed_inbound_sessions"
   local local_agent
-  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  local_agent=$(config_local_agent_id)
   local defaults="[\"agent:${local_agent}:main\",\"agent:${local_agent}:antenna\"]"
 
   # Normalize a session name to a full key (expand bare names)
@@ -652,7 +655,7 @@ cmd_model() {
   case "$subcmd" in
     show)
       local model
-      model=$(jq -r '.relay_agent_model // "unset"' "$CONFIG_FILE" 2>/dev/null || echo "unset")
+      model=$(config_relay_agent_model)
       echo "Relay model: $model"
       ;;
 
@@ -731,22 +734,22 @@ cmd_status() {
 
   # Config summary
   local model max_len mcs
-  model=$(jq -r '.relay_agent_model // "unset"' "$CONFIG_FILE" 2>/dev/null || echo "unset")
-  max_len=$(jq -r '.max_message_length // 10000' "$CONFIG_FILE" 2>/dev/null || echo "10000")
-  mcs=$(jq -r '.mcs_enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+  model=$(config_relay_agent_model)
+  max_len=$(config_max_message_length)
+  mcs=$(config_mcs_enabled)
   echo "Relay model: $model"
   echo "Max message: $max_len chars"
   echo "MCS: $mcs"
 
   # Rate limit config
   local rl_peer rl_global
-  rl_peer=$(jq -r '.rate_limit.per_peer_per_minute // 10' "$CONFIG_FILE" 2>/dev/null || echo "10")
-  rl_global=$(jq -r '.rate_limit.global_per_minute // 30' "$CONFIG_FILE" 2>/dev/null || echo "30")
+  rl_peer=$(config_rate_limit_per_peer)
+  rl_global=$(config_rate_limit_global)
   echo "Rate limit: ${rl_peer}/min per peer, ${rl_global}/min global"
 
   # Session allowlist
   local sessions local_agent
-  local_agent=$(jq -r '.local_agent_id // "agent"' "$CONFIG_FILE" 2>/dev/null || echo "agent")
+  local_agent=$(config_local_agent_id)
   sessions=$(jq -r --arg main "agent:'"$local_agent"':main" --arg antenna "agent:'"$local_agent"':antenna" '.allowed_inbound_sessions // [$main,$antenna] | join(", ")' "$CONFIG_FILE" 2>/dev/null || echo "agent:${local_agent}:main, agent:${local_agent}:antenna")
   echo "Session allowlist: $sessions"
 
