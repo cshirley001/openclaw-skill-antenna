@@ -156,12 +156,21 @@ else
   fail "T2b: primary guard uses die()" "guard may be bypassable via confirm_or_die"
 fi
 
-# 2c: guard removes the decrypted bundle file before exiting.
-if awk '/REF-600: primary guard/,/^  fi$/' \
-     "$SKILL_REPO/scripts/antenna-exchange.sh" | grep -q 'rm -f "\$bundle_json"'; then
-  pass "T2c: primary guard cleans decrypted bundle before die"
+# 2c: decrypted bundle cleanup is guaranteed before the REF-600 guard can die.
+# After REF-603 this no longer needs an inline `rm -f "$bundle_json"` inside
+# the guard itself; instead the import-side cleanup trap must be installed
+# immediately after decrypt and before any later die-paths, including REF-600.
+IMPORT_BODY="$(awk '/^import_bundle\(\) \{/,/^\}$/' "$SKILL_REPO/scripts/antenna-exchange.sh")"
+if printf '%s\n' "$IMPORT_BODY" | awk '
+  /bundle_json="\$\(decrypt_bundle_to_json / { seen_decrypt = 1; next }
+  seen_decrypt && /^[[:space:]]*trap .*bundle_json.*(RETURN|EXIT)/ { trap_found = 1 }
+  /REF-600: primary guard against self-identity hijack/ && !trap_found { bad = 1 }
+  END { exit (trap_found && !bad) ? 0 : 1 }
+'; then
+  pass "T2c: import-side cleanup trap is armed before the REF-600 guard"
 else
-  fail "T2c: primary guard cleans decrypted bundle" "no rm of bundle_json inside guard"
+  fail "T2c: import-side cleanup trap is armed before the REF-600 guard" \
+       "expected trap after decrypt and before self-identity refusal guard"
 fi
 
 # 2d: guard writes a log entry for audit trail.
