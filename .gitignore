@@ -31,3 +31,11 @@ docs/
 bruce_bundle1.txt
 bruce_reply_bundle1.txt
 bruce_import1.txt:Zone.Identifier
+
+# Runtime backups created by antenna-cli during destructive ops
+antenna-config.json.bak.*
+antenna-peers.json.bak.*
+antenna-inbox.json.bak.*
+
+# Retired secrets (moved out of secrets/ during cleanup, never shipped)
+secrets.retired/

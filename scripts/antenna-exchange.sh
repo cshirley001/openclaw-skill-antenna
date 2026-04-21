@@ -747,6 +747,20 @@ build_plaintext_bundle_stdout() {
   endpoint="$(self_field 'url')"
   agent_id="$(self_field 'agentId')"
   [[ -n "$endpoint" ]] || die "Self peer is missing url in antenna-peers.json"
+  # REF-1313: refuse to emit a bundle whose self endpoint is not a real URL.
+  # Defense against a locally-corrupted self-peer propagating to every peer
+  # that imports bundles from us (the "url: main" incident, 2026-04-21).
+  if ! validate_peer_url "$endpoint" false 2>/tmp/antenna-urlcheck.$$; then
+    local _reason
+    _reason="$(cat /tmp/antenna-urlcheck.$$ 2>/dev/null || true)"
+    rm -f /tmp/antenna-urlcheck.$$
+    die "Self peer URL is not valid: ${_reason:-unknown}
+
+Refusing to emit a bootstrap bundle with a malformed endpoint. Fix your self
+peer in antenna-peers.json (or re-run 'antenna setup') so .url is a real
+https:// URL that peers can reach, then try again."
+  fi
+  rm -f /tmp/antenna-urlcheck.$$
   [[ -n "$agent_id" ]] || agent_id="$(config_relay_agent_id)"
 
   token_file="$(self_hooks_token_file)"
@@ -920,6 +934,20 @@ validate_bundle_json() {
     (.from_identity_secret | type == "string" and test("^[0-9a-f]{64}$")) and
     (.from_exchange_pubkey | type == "string" and startswith("age1"))
   ' "$bundle_json" >/dev/null || die "Decrypted bundle JSON is missing required fields or is malformed."
+
+  # REF-1313: enforce URL shape on the incoming endpoint. Prior to this,
+  # any non-empty string (e.g. "main") would pass and land verbatim in the
+  # receiver's peer record, later causing mis-routed sends with a real
+  # hook token attached. Independent of sender-side checks so a peer on
+  # an older or broken toolchain cannot poison our state.
+  local _endpoint _reason
+  _endpoint="$(jq -r '.from_endpoint_url' "$bundle_json")"
+  if ! _reason="$(validate_peer_url "$_endpoint" false 2>&1 >/dev/null)"; then
+    die "Decrypted bundle has an invalid from_endpoint_url: ${_reason:-invalid URL}
+
+Refusing to import. Ask the sender to fix their self peer's .url (it must be
+a real https:// URL) and regenerate the bundle."
+  fi
 }
 
 validate_bundle_freshness() {

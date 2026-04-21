@@ -86,3 +86,84 @@ peers_require() {
   fi
   printf '%s\n' "$val"
 }
+
+# validate_peer_url <url> [allow_insecure]
+#   Returns 0 if <url> looks like a plausible hook endpoint, 1 otherwise.
+#   Prints a one-line reason to stderr on failure (no color, no prefix).
+#
+#   Policy (REF-1313):
+#     - Must start with https:// (or http:// when allow_insecure == "true").
+#     - Must have a non-empty host component (reject bare scheme).
+#     - Must not contain whitespace or control characters.
+#     - Host must contain at least one dot OR be "localhost" (with optional port).
+#       This rejects garbage-but-plausible strings like "main", "foo", "bar" that
+#       technically survive a URL-parse but cannot possibly be a reachable peer.
+#     - Trailing slash is tolerated; callers already strip it upstream.
+#     - Query strings and fragments are rejected — a hook URL is a base endpoint,
+#       not a pre-parameterized GET. This keeps the surface tight for v1.
+#
+#   Design notes:
+#     - Pure bash regex, no curl/jq/python dependencies. Runs in setup's early
+#       bootstrap path too.
+#     - Single source of truth: every write boundary (setup, bundle build,
+#       bundle import, peer add/update) calls this. REF-1313.
+#     - Callers decide whether to `die` or `warn`; this helper does not exit.
+validate_peer_url() {
+  local url="${1:-}" allow_insecure="${2:-false}"
+
+  if [[ -z "$url" ]]; then
+    echo "peer URL is empty" >&2
+    return 1
+  fi
+
+  # Reject whitespace / control chars outright.
+  if [[ "$url" =~ [[:space:][:cntrl:]] ]]; then
+    echo "peer URL contains whitespace or control characters: '$url'" >&2
+    return 1
+  fi
+
+  # Scheme check.
+  local scheme_ok=false
+  if [[ "$url" =~ ^https:// ]]; then
+    scheme_ok=true
+  elif [[ "$url" =~ ^http:// && "$allow_insecure" == "true" ]]; then
+    scheme_ok=true
+  fi
+  if [[ "$scheme_ok" != "true" ]]; then
+    if [[ "$allow_insecure" == "true" ]]; then
+      echo "peer URL must start with https:// or http:// (got: '$url')" >&2
+    else
+      echo "peer URL must start with https:// (got: '$url'; pass --allow-insecure to permit http://)" >&2
+    fi
+    return 1
+  fi
+
+  # Strip scheme, then isolate host[:port] (everything up to first '/' or '?').
+  local rest="${url#*://}"
+  # Reject query/fragment in base endpoint.
+  if [[ "$rest" == *\?* || "$rest" == *\#* ]]; then
+    echo "peer URL must not contain query string or fragment: '$url'" >&2
+    return 1
+  fi
+  local hostport="${rest%%/*}"
+  if [[ -z "$hostport" ]]; then
+    echo "peer URL is missing a host: '$url'" >&2
+    return 1
+  fi
+  # Strip port (if any) for the dotted-host sanity check; keep the full
+  # hostport for the localhost match so "localhost:8080" still counts.
+  local host="${hostport%%:*}"
+  if [[ -z "$host" ]]; then
+    echo "peer URL host is empty: '$url'" >&2
+    return 1
+  fi
+
+  # Host must contain a dot (FQDN / IPv4) OR be exactly "localhost".
+  # This is the check that finally catches things like url="main".
+  if [[ "$host" != "localhost" && "$host" != *.* ]]; then
+    echo "peer URL host '$host' does not look like a reachable hostname (no dot, not 'localhost'): '$url'" >&2
+    return 1
+  fi
+
+  return 0
+}
