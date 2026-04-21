@@ -22,11 +22,13 @@ This policy covers the Antenna skill itself — scripts, relay protocol, trust m
 
 | Version | Supported |
 |---------|-----------|
-| 1.2.20 + `[Unreleased]` on `main` | ✅ Current |
+| 1.3.0 (prepared next release) / current `main` | ✅ Current |
+| 1.2.21 - 1.2.22 (prepared interim release docs) | ⚠️  Historical release narrative only; upgrade to 1.3.0 when published |
+| 1.2.20 | ⚠️  Upgrade recommended (important post-release hardening landed after this tag) |
 | 1.2.0 – 1.2.19 | ⚠️  Upgrade strongly recommended (concurrency / security hardening landed after these) |
 | < 1.2 | ❌ Unsupported |
 
-New security-sensitive work lands on `main` before cutting a numbered release. The post-1.2.20 `[Unreleased]` series includes envelope-marker guard (REF-400), message freshness window (REF-402), relay temp-file hygiene (REF-403), self-id fallback removal (REF-404), constant-time identity-secret compare (REF-501), expired-bundle refusal (REF-601), plaintext bootstrap-bundle cleanup (REF-603), Himalaya `From:`-address resolution (REF-616), legacy raw-secret export non-TTY refusal (REF-605), gateway `hooks.token` preservation on setup rerun (REF-901), and operator `tools.exec` preservation on setup rerun (REF-903). Operators on 1.2.x should track `main` for these.
+Important security-sensitive work landed after `1.2.20` and is now being rolled into the prepared `1.3.0` release, with `1.2.21` and `1.2.22` retained as internal release-history waypoints rather than the next planned public publish. That includes envelope-marker guard (REF-400), message freshness window (REF-402), relay temp-file hygiene (REF-403), self-id fallback removal (REF-404), constant-time identity-secret compare (REF-501), expired-bundle refusal (REF-601), plaintext bootstrap-bundle cleanup (REF-603), Himalaya `From:`-address resolution (REF-616), legacy raw-secret export non-TTY refusal (REF-605), gateway `hooks.token` preservation on setup rerun (REF-901), and operator `tools.exec` preservation on setup rerun (REF-903).
 
 ## Security-Relevant Design
 

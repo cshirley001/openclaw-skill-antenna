@@ -2,7 +2,7 @@
 
 **Cross-host messaging for OpenClaw - your agents, their agents, any session, any host.**
 
-*Version 1.2.20 · An AgentSkill from the OpenClaw community*
+*Version 1.2.22 · An AgentSkill from the OpenClaw community*
 
 ---
 
@@ -267,9 +267,9 @@ Your primary agent's ID (e.g., `lobster`, `betty`). This is used in full session
 
 ### Step 4: Relay Model
 
-The LLM that powers the relay agent. Pick something lightweight and fast - the relay is a courier, not a philosopher. `openai/gpt-5.4` is a solid default. Use a full `provider/model` ID for portability.
+The LLM that powers the relay agent. Pick something lightweight and fast - the relay is a courier, not a philosopher. `openai/gpt-5.4-nano` is the current recommended default based on the current three-way comparison run. Use a full `provider/model` ID for portability.
 
-> **Use case:** Running on a budget? `openai/gpt-5.4-nano-2026-03-17` passes all tests and costs a fraction. Running Antenna on a local box with Ollama? Point it at your local model.
+> **Use case:** Want the best current relay-duty speed/fit? `openai/gpt-5.4-nano` is the recommended default. Prefer a pinned version for stricter reproducibility? `openai/gpt-5.4-nano-2026-03-17` has also passed the suite cleanly. Running Antenna on a local box with Ollama? Point it at your local model.
 
 ### Step 5: Inbox Mode
 
@@ -683,7 +683,7 @@ Defaults allow up to 5 minutes of age and 60 seconds of future skew per message.
 
 ## What's Next - The Lobster Roadmap
 
-Antenna v1.2.20 plus the `[Unreleased]` hardening block on `main` is the current foundation. Here’s what’s on the horizon:
+Antenna v1.2.22 is the prepared next release and rolls up the post-v1.2.20 hardening sweep. Here’s what’s on the horizon:
 
 - **📡 Clusters & Broadcasts** - Named groups of peers; send one message to many hosts. Announce a security patch to your whole lab cluster in one command. Broadcast a best practice to every peer on your reef.
 - **🦞🆘 Helping Claw** - Community help requests broadcast to willing peers. Ask the reef a question; peers with `helping_claw` enabled answer; everyone else politely bounces. StackOverflow meets ham radio. The more lobsters on the reef, the smarter the whole ecosystem gets.

@@ -4,9 +4,13 @@ All notable changes to the Antenna skill are documented here.
 
 ## [Unreleased]
 
-### Fixed (REF-300 / REF-303)
-- **REF-300 / REF-303 — `antenna peers add` silently overwrote existing entries and null-ed out un-supplied fields.** `cmd_peers add` now refuses to touch an existing peer unless `--force` is given, and `--force` applies merge semantics: only fields explicitly supplied on the command line are overwritten, everything else (including unknown top-level fields like `.self` set by peer-exchange) is preserved. New-peer adds still require `--url` and `--token-file`; `--force` updates do not.
-  Docs impact: peers_add_overwrite_policy, peer_registry_merge_semantics
+### Changed
+- **Test-suite provider request compatibility and fixture freshness refresh.** `scripts/antenna-test-suite.sh` now sends OpenAI-family requests with `max_completion_tokens`, Anthropic requests with `max_tokens`, and uses a fresh current UTC timestamp in Tier A.15 so the REF-500 regression once again exercises session-target rejection instead of tripping freshness validation first. Fresh validation evidence now includes clean full-suite runs for `openai/gpt-5.4-nano`, `openai/gpt-5.4-mini-2026-03-17`, `anthropic/claude-sonnet-4-5`, and `google/gemini-2.5-pro`, plus a comparison run that keeps `openai/gpt-5.4-nano` as the current recommended relay model on speed/fit grounds.
+  Docs impact: test_suite_behavior, relay_model_recommendation, version_number
+- **Release narrative advanced to `1.3.0`.** Operator-facing docs and config examples now present `openai/gpt-5.4-nano` as the recommended relay model and frame the next planned publish as `1.3.0`, while preserving `1.2.21` and `1.2.22` as historical/prepared release waypoints.
+  Docs impact: relay_model_recommendation, version_number
+
+## [1.3.0] — 2026-04-20
 
 ### Security
 - **REF-603 — plaintext bootstrap bundle JSON could leak in `/tmp` on failure.** `scripts/antenna-exchange.sh` now streams outbound bootstrap JSON directly from `jq` into `age` instead of writing a plaintext temp file first, and the import path installs cleanup traps immediately after decrypt so decrypted plaintext JSON is removed on normal return, validation failure, or signal interruption.
@@ -21,8 +25,8 @@ All notable changes to the Antenna skill are documented here.
   Docs impact: exchange_email_from_resolution
 
 ### Fixed
-- **REF-500 — inbox session allowlist bypass:** already landed on `main` via PR #5.
-  Docs impact: session_resolution
+- **REF-300 / REF-303 — `antenna peers add` silently overwrote existing entries and null-ed out un-supplied fields.** `cmd_peers add` now refuses to touch an existing peer unless `--force` is given, and `--force` applies merge semantics: only fields explicitly supplied on the command line are overwritten, everything else (including unknown top-level fields like `.self` set by peer-exchange) is preserved. New-peer adds still require `--url` and `--token-file`; `--force` updates do not.
+  Docs impact: peers_add_overwrite_policy, peer_registry_merge_semantics
 - **REF-604 — `ensure_peer_entry_updated()` lost unknown peer-entry fields:** jq merge switched from `+` to `*` so nested peer fields (including `.self`) are preserved additively during peer updates.
   Docs impact: peer_registry_merge_semantics
 - **REF-605 — legacy identity-secret export could leak over non-TTY stdout:** `legacy_export_runtime_secret()` now refuses to print the runtime identity secret when stdout is not a TTY and points operators at Layer A encrypted bootstrap instead.
@@ -31,6 +35,8 @@ All notable changes to the Antenna skill are documented here.
   Docs impact: gateway_hooks_token_setup
 - **REF-903 — setup reruns silently stripped operator `tools.exec` policy from the antenna agent:** the existing-agent repair path in `scripts/antenna-setup.sh` no longer does `del(.exec)`, so expert `tools.exec` overrides survive reruns. Setup still forces `sandbox.mode = "off"` and seeds the default deny list only when `tools.deny` is absent.
   Docs impact: setup_agent_update_behavior
+- **REF-1206c — pair wizard no longer falsely implies bootstrap email delivery succeeded.** `scripts/antenna-pair.sh` now checks the real exit status from `antenna peers exchange initiate ... --send-email`, treats non-zero send attempts as failures, tells the operator the bundle was not sent, and falls back to explicit manual-delivery acknowledgement instead of fake-success wording.
+  Docs impact: pair_wizard_email_delivery_behavior
 - **REF-1501 — poll-loop couldn't fast-fail on auth/peer/rate-limit REJECTED:** `scripts/antenna-relay.sh` now tags all post-body REJECTED log lines with `nonce:$NONCE` (missing `from`, peer not in allowlist, unknown peer, missing/invalid peer secret, per-peer rate limit, global rate limit). The two pre-body envelope-marker MALFORMED paths intentionally remain nonce-less. Combined with REF-1502, `antenna test <model>` now exits on the first nonce-scoped REJECTED instead of waiting for `--timeout`.
   Docs impact: model_test_behavior
 - **REF-1502 — `TEST_NONCE` generated but not used for log correlation:** `scripts/antenna-model-test.sh` now polls for nonce-scoped PASS (`INBOUND.*nonce:$TEST_NONCE.*status:relayed`) and nonce-scoped REJECTED instead of session-only matching, so concurrent runs can't cross-poison each other's results.
@@ -41,6 +47,25 @@ All notable changes to the Antenna skill are documented here.
 ### Added
 - **`--no-restart` flag on `antenna config set` and `antenna model set`** for rapid-batch callers that want to write gateway config now and restart the gateway once at the end. Internal helper `_sync_relay_model_to_gateway` split into `_write_relay_model_to_gateway_config` (no restart) and `_restart_gateway`.
   Docs impact: model_test_behavior
+
+### Docs
+- README version/status refreshed for the prepared `v1.3.0` release, SKILL metadata includes canonical repository/homepage URLs for provenance, and operator-facing docs/config examples now present `openai/gpt-5.4-nano` as the recommended relay model.
+  Docs impact: version_number, relay_model_recommendation
+
+## [1.2.22] — 2026-04-20
+
+### Note
+- Historical/prepared release waypoint retained for continuity. Its substantive fixes were rolled into the prepared `1.3.0` release narrative above.
+
+## [1.2.21] — 2026-04-18
+
+### Fixed
+- **Session resolution: sender no longer injects its own default session into outbound envelopes.** When `--session` is omitted, `target_session` is omitted from the envelope entirely; the recipient resolves from their own `default_target_session` config. Sender no longer needs to know the recipient's internal session layout. (Issue #17)
+  Docs impact: session_resolution, version_number
+
+### Docs
+- README, SKILL.md, User Guide, and relay protocol docs were refreshed to reflect the session-resolution fix and align versioned operator-facing surfaces for the `1.2.21` publish.
+  Docs impact: version_number, session_resolution
 
 ## [1.2.20] — 2026-04-17
 
@@ -188,8 +213,6 @@ README, SKILL.md, User Guide, setup script summary output, static site (index.ht
 ### Changed
 - Pair wizard expanded from 7 to 8 steps (ClawReef invite inserted as Step 3; existing steps renumbered)
 - Roadmap entries updated to reflect ClawReef is now live
-
-## [Unreleased]
 
 ## [1.2.0] — 2026-04-09
 

@@ -988,7 +988,7 @@ Wrong secret test.
   '
 
   local ref500_env ref500_result ref500_action ref500_reason ref500_queue_len
-  ref500_env=$(build_envelope "$SELF_PEER" "agent:betty:sensitive-private" "2026-01-01T00:00:00Z" "Should be rejected, not queued.")
+  ref500_env=$(build_envelope "$SELF_PEER" "agent:betty:sensitive-private" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "Should be rejected, not queued.")
   ref500_result=$(echo "$ref500_env" | bash "$RELAY_SCRIPT" --stdin 2>/dev/null)
   ref500_action=$(echo "$ref500_result" | jq -r '.action // "none"' 2>/dev/null)
   ref500_reason=$(echo "$ref500_result" | jq -r '.reason // ""' 2>/dev/null)
@@ -1087,7 +1087,7 @@ This is an automated relay compatibility test verifying that ${model} correctly 
         ],
         tools: $tools,
         temperature: 0,
-        max_tokens: 400
+        max_completion_tokens: 400
       }')
   else
     # Anthropic/Google: pass normalized input for the helper to build
@@ -1278,7 +1278,7 @@ This is an automated relay compatibility test verifying that ${model} correctly 
         ],
         tools: $tools,
         temperature: 0,
-        max_tokens: 400
+        max_completion_tokens: 400
       }')
   elif [[ "$fmt" == "anthropic" ]]; then
     request_input=$(jq -n \
