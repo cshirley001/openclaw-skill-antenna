@@ -10,10 +10,16 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-04-21
+
+### Docs
+- **Revert 1.3.2 README-header tweak.** Post-publish investigation confirmed ClawHub's skill-page "README" tab always renders `SKILL.md`, not `README.md`; the 1.3.2 H1-to-blockquote change had no effect on the rendered page and was made on a false premise. Restored the original `# 🦞 Antenna — Cross-Host Messaging for OpenClaw` heading and bold tagline. No runtime changes.
+  Docs impact: readme_header_revert
+
 ## [1.3.2] — 2026-04-21
 
 ### Docs
-- **README rendering fix for ClawHub.** Removed the `# H1` heading from the top of `README.md` and moved the project tagline into a blockquote. ClawHub's skill-page "README" tab was falling back to `SKILL.md` when `README.md` opened with its own `# ` heading (an emoji-prefixed H1 in our case); the new layout matches the convention used by other skills that ship both files so the registry renders the real README body.
+- **Attempted README rendering fix for ClawHub (did not take effect).** Removed the `# H1` heading from the top of `README.md` and moved the project tagline into a blockquote, on the theory that ClawHub's skill-page "README" tab was falling back to `SKILL.md` when `README.md` opened with a competing H1. Later verification showed ClawHub's "README" tab renders `SKILL.md` regardless of `README.md`'s heading style, so this change was ineffective and is reverted in 1.3.3.
   Docs impact: readme_rendering
 
 ## [1.3.1] — 2026-04-21
