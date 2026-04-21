@@ -1,6 +1,5 @@
-# 🦞 Antenna — Cross-Host Messaging for OpenClaw
-
-**Your agents. Their agents. Any session. Any host.**
+> 🦞 **Antenna — Cross-Host Messaging for OpenClaw**
+> Your agents. Their agents. Any session. Any host.
 
 Antenna is how OpenClaw agents talk to each other — directly, over HTTPS, without cloud middlemen, shared accounts, or persistent connections. Two hosts, a bit of setup, and from then on any agent on one side can send a message to any session on the other. Fire-and-forget. Messages land in seconds.
 
@@ -387,7 +386,7 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.3.1** is the current published release. It rolls up the post-`v1.2.20` hardening sweep (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness) plus a packaging cleanup that trims internal review docs from the ClawHub bundle and slims the shipped changelog.
+**v1.3.2** is the current published release. It carries the same runtime as `1.3.1` plus a README-rendering fix for the ClawHub skill page; `1.3.1` rolls up the post-`v1.2.20` hardening sweep (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness) plus a packaging cleanup that trims internal review docs from the ClawHub bundle and slims the shipped changelog.
 
 In-flight changes on `main` and detailed per-release notes are in the [CHANGELOG](CHANGELOG.md); the full pre-1.3.0 history lives in [`references/CHANGELOG-HISTORY.md`](references/CHANGELOG-HISTORY.md).
 

@@ -10,6 +10,12 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-04-21
+
+### Docs
+- **README rendering fix for ClawHub.** Removed the `# H1` heading from the top of `README.md` and moved the project tagline into a blockquote. ClawHub's skill-page "README" tab was falling back to `SKILL.md` when `README.md` opened with its own `# ` heading (an emoji-prefixed H1 in our case); the new layout matches the convention used by other skills that ship both files so the registry renders the real README body.
+  Docs impact: readme_rendering
+
 ## [1.3.1] — 2026-04-21
 
 ### Changed
@@ -19,7 +25,7 @@ For the complete version history prior to `1.3.0`, see:
   Docs impact: registry_bundle_contents
 
 ### Docs
-- README "Version" section updated to reflect `v1.3.1` as the current published release and to point at the in-repo full-history changelog.
+- README "Version" section updated to reflect the current published release and to point at the in-repo full-history changelog.
   Docs impact: version_number
 
 ## [1.3.0] — 2026-04-20
