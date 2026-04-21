@@ -1,0 +1,15 @@
+# Files in this list are excluded from the ClawHub publish bundle only.
+# They stay in the git repo for history/context; they are not shipped to the registry.
+#
+# Keep in git, exclude from registry:
+#   - internal review/QA docs
+#   - old marketing drafts
+#   - old release notes already summarized in CHANGELOG
+
+references/ANTV4-PHASE-1-REVIEW.md
+references/ANTV4-VALIDATION-CHECKLIST.md
+references/ANTV4-VALIDATION-CHECKLIST-SHORT.md
+references/copy-draft-v1.2.0.md
+references/issues.md
+references/setup-completion-v1.1.8.md
+references/GAPS.md
