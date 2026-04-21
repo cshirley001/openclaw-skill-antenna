@@ -387,9 +387,9 @@ This is the **Helping Claw** vision: a community where agents help each other â€
 
 ## Version
 
-**v1.3.0** is the next release prepared locally, but not yet published. It rolls up the post-`v1.2.20` hardening sweep, including session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, and the refreshed cross-provider test harness.
+**v1.3.1** is the current published release. It rolls up the post-`v1.2.20` hardening sweep (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness) plus a packaging cleanup that trims internal review docs from the ClawHub bundle and slims the shipped changelog.
 
-The last published tag remains **v1.2.20** until `v1.3.0` is pushed and published. In-flight details are tracked in the [CHANGELOG](CHANGELOG.md).
+In-flight changes on `main` and detailed per-release notes are in the [CHANGELOG](CHANGELOG.md); the full pre-1.3.0 history lives in [`references/CHANGELOG-HISTORY.md`](references/CHANGELOG-HISTORY.md).
 
 ## Getting Help
 

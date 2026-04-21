@@ -10,11 +10,17 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-04-21
+
 ### Changed
-- Changelog slimmed down: pre-`1.3.0` entries moved to `references/CHANGELOG-HISTORY.md`. The current file covers `[Unreleased]` plus the most recent releases; full history lives on GitHub and in the history file.
+- **Changelog slimmed down.** Pre-`1.3.0` entries moved to `references/CHANGELOG-HISTORY.md`. The current file covers `[Unreleased]` plus the most recent releases; full history lives on GitHub and in the history file.
   Docs impact: changelog_layout
 - **Registry bundle trimmed.** Added `.clawhubignore` so internal review/QA documents and historical drafts stay in the git repo but are no longer shipped to the ClawHub registry. Specifically excluded: `references/ANTV4-PHASE-1-REVIEW.md`, `references/ANTV4-VALIDATION-CHECKLIST.md`, `references/ANTV4-VALIDATION-CHECKLIST-SHORT.md`, `references/copy-draft-v1.2.0.md`, `references/issues.md`, `references/setup-completion-v1.1.8.md`, `references/GAPS.md`.
   Docs impact: registry_bundle_contents
+
+### Docs
+- README "Version" section updated to reflect `v1.3.1` as the current published release and to point at the in-repo full-history changelog.
+  Docs impact: version_number
 
 ## [1.3.0] — 2026-04-20
 
