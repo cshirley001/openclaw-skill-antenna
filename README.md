@@ -217,10 +217,10 @@ Three-tier test suite across 7 provider families (OpenAI, Codex, OpenRouter, Nvi
 antenna test-suite --tier A
 
 # Full suite against a single model
-antenna test-suite --model openai/gpt-5.4
+antenna test-suite --model openai/gpt-5.4-nano
 
 # Compare multiple models side-by-side (max 6)
-antenna test-suite --models "anthropic/claude-sonnet-4,google/gemini-2.5-flash,openai/gpt-5.4"
+antenna test-suite --models "openai/gpt-5.4-nano,anthropic/claude-sonnet-4-5,google/gemini-2.5-pro"
 
 # Save structured report
 antenna test-suite --report
@@ -387,14 +387,14 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.2.20** is the current tagged release — concurrency hardening, peer registry validation, full-session-key enforcement, and a docs refresh.
+**v1.3.0** is the next release prepared locally, but not yet published. It rolls up the post-`v1.2.20` hardening sweep, including session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, and the refreshed cross-provider test harness.
 
-Changes merged to `main` since then are tracked under `[Unreleased]` in the [CHANGELOG](CHANGELOG.md). That's where to look for the latest security and stability improvements before the next tag cuts.
+The last published tag remains **v1.2.20** until `v1.3.0` is pushed and published. In-flight details are tracked in the [CHANGELOG](CHANGELOG.md).
 
 ## Getting Help
 
 - 📧 **Email:** [help@clawreef.io](mailto:help@clawreef.io)
-- 🐛 **Bug reports & feature requests:** [GitHub Issues](https://github.com/ClawReefAntenna/antenna/issues)
+- 🐛 **Bug reports & feature requests:** [GitHub Issues](https://github.com/cshirley001/openclaw-skill-antenna/issues)
 - 🪨 **ClawReef:** [clawreef.io](https://clawreef.io)
 - 🔒 **Security vulnerabilities:** See [SECURITY.md](SECURITY.md)
 
