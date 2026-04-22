@@ -131,10 +131,61 @@ if [[ -f "$PEERS_FILE" ]]; then
   if jq empty "$PEERS_FILE" 2>/dev/null; then
     pass "antenna-peers.json exists and is valid JSON"
 
-    # Check self-peer exists
+    # Check self-peer exists. `peers_self_id` filters to entries that have
+    # a string .url field, so a self entry without .url wouldn't be found
+    # here. REF-2001: look up a self peer by `self == true` independently of
+    # the shape predicate so we can distinguish "no self at all" from
+    # "self exists but URL is missing."
     local_self=$(peers_self_id)
+    self_id_any=$(jq -r 'to_entries[] | select((.value | type) == "object" and .value.self == true) | .key' "$PEERS_FILE" 2>/dev/null | head -n 1)
+
     if [[ -n "$local_self" ]]; then
       pass "Self-peer found: $local_self"
+
+      # REF-2001: self-peer URL shape check. The live `url: "main"` incident
+      # (devon1545, 2026-04-21) landed because the validator didn't exist yet.
+      # Now it does; doctor should surface drift here since this is exactly
+      # the class of bug doctor is for.
+      self_url=$(peers_get "$local_self" url)
+      if [[ -z "$self_url" ]]; then
+        fail "Self-peer has no URL configured"
+        hint "Re-run: antenna setup --force  (or set .self.url in antenna-peers.json)"
+      else
+        _url_reason=""
+        if _url_reason="$(validate_peer_url "$self_url" 2>&1 >/dev/null)"; then
+          pass "Self-peer URL looks valid: $self_url"
+        else
+          fail "Self-peer URL is malformed: $self_url (${_url_reason:-invalid URL})"
+          hint "Fix .self.url in antenna-peers.json or re-run: antenna setup --force"
+        fi
+      fi
+
+      # REF-2001 (warn tier): scan other peers' URLs too. Warn, not fail,
+      # because pre-1313 installs may legitimately have non-conforming URLs
+      # that the operator hasn't had a chance to fix yet.
+      bad_peers=()
+      while IFS= read -r pid; do
+        [[ -z "$pid" ]] && continue
+        [[ "$pid" == "$local_self" ]] && continue
+        purl=$(peers_get "$pid" url)
+        [[ -z "$purl" ]] && continue
+        if ! validate_peer_url "$purl" >/dev/null 2>&1; then
+          bad_peers+=("$pid ($purl)")
+        fi
+      done < <(peers_list_ids)
+      if (( ${#bad_peers[@]} > 0 )); then
+        warn "Peers with malformed URLs: ${#bad_peers[@]}"
+        for bp in "${bad_peers[@]}"; do
+          hint "  - $bp"
+        done
+        hint "Re-pair or fix .url in antenna-peers.json"
+      else
+        pass "All peer URLs pass shape validation"
+      fi
+    elif [[ -n "$self_id_any" ]]; then
+      # REF-2001: self entry exists but has no string .url field.
+      fail "Self-peer '$self_id_any' has no URL configured"
+      hint "Re-run: antenna setup --force  (or set .url on the self entry in antenna-peers.json)"
     else
       fail "No self-peer defined (no entry with \"self\": true)"
       hint "Add a self entry to antenna-peers.json or re-run: antenna setup"
