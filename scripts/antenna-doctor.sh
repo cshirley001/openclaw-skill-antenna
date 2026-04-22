@@ -515,6 +515,172 @@ fi
 
 echo ""
 
+# ── 6b. Secrets-directory hygiene ───────────────────────────────────────────
+#
+# Section 6 audits per-peer secrets *referenced from antenna-peers.json*. It
+# says nothing about files sitting in secrets/ that no peer references anymore
+# (orphans: the file equivalent of the REF-1312 allowlist drift, pre-cleanup
+# `bruce` / `nexus`), and nothing about forgotten `.bak` backups whose perms
+# drift silently over time. It also doesn't check that secrets/ itself is not
+# group/world-readable. This is the file-side counterpart to 1b.
+#
+# Severity is warn, not fail — matching 1b: orphan/backup secret files on
+# disk can't authenticate anyone who isn't in the peer registry, but they are
+# a real migration hygiene signal and an easy leak surface if perms drift.
+
+echo -e "${BOLD}6b. Secrets Directory Hygiene${NC}"
+
+SECRETS_DIR="$SKILL_DIR/secrets"
+
+if [[ ! -d "$SECRETS_DIR" ]]; then
+  info "No secrets directory at $SECRETS_DIR (skipping)"
+else
+  # ---- Directory permissions ----
+  dir_perms=$(stat -c '%a' "$SECRETS_DIR" 2>/dev/null || stat -f '%Lp' "$SECRETS_DIR" 2>/dev/null || echo "unknown")
+  case "$dir_perms" in
+    700|750|500)
+      pass "secrets/ directory permissions OK ($dir_perms)"
+      ;;
+    *)
+      warn "secrets/ directory permissions ($dir_perms) — should be 700"
+      hint "chmod 700 $SECRETS_DIR"
+      ;;
+  esac
+
+  # ---- Classify loose files ----
+  # Build the set of known peer IDs up front.
+  known_peers=""
+  if [[ -f "$PEERS_FILE" ]]; then
+    known_peers=$(peers_list_ids 2>/dev/null | sort -u)
+  fi
+
+  # Known non-peer-scoped files that are expected to live in secrets/.
+  # (The age keypair is Layer A bootstrap material; it isn't tied to one peer.)
+  is_known_nonpeer_file() {
+    case "$1" in
+      antenna-exchange.agekey|antenna-exchange.agepub) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  # Extract `<peer_id>` from a filename if it looks like a peer-scoped file.
+  # Returns empty if the file doesn't match any known peer-scoped pattern.
+  peer_id_from_filename() {
+    local fn="$1"
+    case "$fn" in
+      antenna-peer-*.secret)
+        fn="${fn#antenna-peer-}"
+        printf '%s\n' "${fn%.secret}"
+        ;;
+      hooks_token_*)
+        printf '%s\n' "${fn#hooks_token_}"
+        ;;
+      peer_secret_*)
+        printf '%s\n' "${fn#peer_secret_}"
+        ;;
+      *)
+        printf '\n'
+        ;;
+    esac
+  }
+
+  is_backup_filename() {
+    case "$1" in
+      *.bak|*.bak.*|*.bak-*|*.backup|*.backup.*|*.backup-*|*~|*.old)
+        return 0
+        ;;
+    esac
+    return 1
+  }
+
+  orphan_list=""
+  backup_list=""
+  unknown_list=""
+  loose_perm_list=""
+
+  while IFS= read -r -d '' entry; do
+    fn="$(basename "$entry")"
+
+    # Any regular file in secrets/ is expected to be 600 / 400 (or 640 at most).
+    f_perms=$(stat -c '%a' "$entry" 2>/dev/null || stat -f '%Lp' "$entry" 2>/dev/null || echo "unknown")
+    case "$f_perms" in
+      600|400) ;;
+      *) loose_perm_list+="$fn|$f_perms"$'\n' ;;
+    esac
+
+    # Classify by filename
+    if is_backup_filename "$fn"; then
+      backup_list+="$fn"$'\n'
+      continue
+    fi
+
+    if is_known_nonpeer_file "$fn"; then
+      continue
+    fi
+
+    pid="$(peer_id_from_filename "$fn" | tr -d '\n')"
+    if [[ -z "$pid" ]]; then
+      unknown_list+="$fn"$'\n'
+      continue
+    fi
+
+    # Does this peer ID exist in the registry?
+    if [[ -z "$known_peers" ]] || ! printf '%s\n' "$known_peers" | grep -qxF "$pid"; then
+      orphan_list+="$fn"$'\n'
+    fi
+  done < <(find "$SECRETS_DIR" -maxdepth 1 -type f -print0 2>/dev/null)
+
+  # ---- Report orphans ----
+  if [[ -n "$orphan_list" ]]; then
+    n=$(printf '%s' "$orphan_list" | grep -c . || true)
+    warn "orphan secret file(s) in secrets/: $n (peer not in registry)"
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      printf '      - %s\n' "$f"
+    done <<<"$orphan_list"
+    hint "Review and either re-add the peer or move the file out of secrets/"
+  else
+    pass "No orphan peer secrets in secrets/"
+  fi
+
+  # ---- Report backups ----
+  if [[ -n "$backup_list" ]]; then
+    n=$(printf '%s' "$backup_list" | grep -c . || true)
+    warn "stale backup file(s) in secrets/: $n"
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      printf '      - %s\n' "$f"
+    done <<<"$backup_list"
+    hint "Remove or move backups out of secrets/ once they're no longer needed"
+  else
+    pass "No stale backup files in secrets/"
+  fi
+
+  # ---- Report loose permissions across the whole dir ----
+  if [[ -n "$loose_perm_list" ]]; then
+    n=$(printf '%s' "$loose_perm_list" | grep -c . || true)
+    warn "file(s) in secrets/ with loose permissions: $n (should be 600)"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      printf '      - %s (%s)\n' "${line%|*}" "${line#*|}"
+    done <<<"$loose_perm_list"
+    hint "chmod 600 $SECRETS_DIR/*"
+  fi
+
+  # ---- Report unknown-shape files ----
+  if [[ -n "$unknown_list" ]]; then
+    n=$(printf '%s' "$unknown_list" | grep -c . || true)
+    warn "unrecognized file(s) in secrets/: $n"
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      printf '      - %s\n' "$f"
+    done <<<"$unknown_list"
+    hint "Secrets/ should only contain peer-scoped secrets and bootstrap keys; review manually"
+  fi
+fi
+
+echo ""
+
 # ── 7. Basic connectivity ───────────────────────────────────────────────────
 
 echo -e "${BOLD}7. Connectivity (quick check)${NC}"
