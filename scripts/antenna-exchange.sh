@@ -26,6 +26,10 @@ SECRETS_DIR="$SKILL_DIR/secrets"
 source "$SKILL_DIR/lib/peers.sh"
 # shellcheck source=../lib/config.sh
 source "$SKILL_DIR/lib/config.sh"
+# REF-2000: shape/freshness validators live in lib/bundles.sh so this script
+# and antenna-bundle.sh stay in lockstep.
+# shellcheck source=../lib/bundles.sh
+source "$SKILL_DIR/lib/bundles.sh"
 EXCHANGE_KEY_FILE="$SECRETS_DIR/antenna-exchange.agekey"
 EXCHANGE_PUB_FILE="$SECRETS_DIR/antenna-exchange.agepub"
 FALLBACK_LEGACY=false
@@ -924,26 +928,21 @@ decrypt_bundle_to_json() {
 
 validate_bundle_json() {
   local bundle_json="$1"
-  jq -e '
-    .schema_version == 1 and
-    .bundle_type == "antenna-bootstrap" and
-    (.expires_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
-    (.from_peer_id | type == "string" and length > 0) and
-    (.from_endpoint_url | type == "string" and length > 0) and
-    (.from_hooks_token | type == "string" and length > 0) and
-    (.from_identity_secret | type == "string" and test("^[0-9a-f]{64}$")) and
-    (.from_exchange_pubkey | type == "string" and startswith("age1"))
-  ' "$bundle_json" >/dev/null || die "Decrypted bundle JSON is missing required fields or is malformed."
+  # REF-2000: shape check is delegated to lib/bundles.sh so the import
+  # path and `antenna bundle verify` agree on what "valid" means.
+  local _shape_reason
+  if ! _shape_reason="$(bundle_shape_reason "$bundle_json" 2>&1 >/dev/null)"; then
+    die "Decrypted bundle JSON is missing required fields or is malformed: ${_shape_reason:-unknown reason}"
+  fi
 
   # REF-1313: enforce URL shape on the incoming endpoint. Prior to this,
   # any non-empty string (e.g. "main") would pass and land verbatim in the
   # receiver's peer record, later causing mis-routed sends with a real
   # hook token attached. Independent of sender-side checks so a peer on
   # an older or broken toolchain cannot poison our state.
-  local _endpoint _reason
-  _endpoint="$(jq -r '.from_endpoint_url' "$bundle_json")"
-  if ! _reason="$(validate_peer_url "$_endpoint" false 2>&1 >/dev/null)"; then
-    die "Decrypted bundle has an invalid from_endpoint_url: ${_reason:-invalid URL}
+  local _url_reason
+  if ! _url_reason="$(bundle_endpoint_url_reason "$bundle_json" 2>&1 >/dev/null)"; then
+    die "Decrypted bundle has an invalid ${_url_reason:-from_endpoint_url}
 
 Refusing to import. Ask the sender to fix their self peer's .url (it must be
 a real https:// URL) and regenerate the bundle."

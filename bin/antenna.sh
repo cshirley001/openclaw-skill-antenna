@@ -120,6 +120,11 @@ Usage:
   antenna peers exchange <id> --import-value <hex> Legacy raw-secret import by value
   antenna peers exchange <id> --export             Legacy raw-secret export
 
+  antenna bundle verify <file>               Verify a received .age.txt bootstrap bundle
+    --json                                    Emit a machine-readable verdict
+    --force-expired                           Don't fail on expired bundles
+    --no-decrypt                              Treat <file> as already-decrypted JSON
+
   antenna inbox list                         Show pending queued messages
   antenna inbox count                        Count pending messages
   antenna inbox show <ref>                   Show full message for a ref
@@ -632,6 +637,14 @@ _sync_relay_model_to_gateway() {
   fi
 }
 
+# REF-2000: `antenna bundle verify <file>` — operator-facing shape/freshness
+# check for received .age.txt bootstrap bundles. Read-only; never writes to
+# antenna-peers.json or antenna-config.json. Delegates to scripts/antenna-
+# bundle.sh so the implementation lives with its own regression test.
+cmd_bundle() {
+  bash "$SCRIPTS_DIR/antenna-bundle.sh" "$@"
+}
+
 cmd_sessions() {
   local subcmd="${1:-list}"
   shift || true
@@ -1072,6 +1085,7 @@ case "$COMMAND" in
   send)     cmd_send "$@" ;;
   msg)      cmd_msg "$@" ;;
   peers)    cmd_peers "$@" ;;
+  bundle)   cmd_bundle "$@" ;;
   inbox)    cmd_inbox "$@" ;;
   sessions) cmd_sessions "$@" ;;
   config)   cmd_config "$@" ;;
