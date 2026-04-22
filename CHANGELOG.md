@@ -10,6 +10,14 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+### Added
+- **REF-2000 — `antenna bundle verify <file>`.** New read-only CLI command for sanity-checking a received `.age.txt` bootstrap bundle before running `antenna peers exchange import`. Decrypts in place, validates shape / endpoint URL / freshness, and prints a safe summary — the hooks token and identity secret never appear in human or `--json` output, only `has_hooks_token` / `has_identity_secret` presence booleans. Never writes to `antenna-peers.json` or `antenna-config.json`. Supports `--json`, `--force-expired`, and `--no-decrypt`. A new shared `lib/bundles.sh` backs both this command and `antenna peers exchange import`, so both paths agree on what "valid" means; import error messages are now more specific as a side effect (e.g. `schema_version must be 1 (got: 2)`).
+  Docs impact: bundle_verification
+
+### Fixed
+- **REF-2001 — `antenna doctor` now validates the self-peer URL shape.** A malformed self-peer `url` (for example a legacy `"main"` value) is now a doctor failure rather than silently passing. Malformed non-self peer URLs are reported as warnings rather than failures so existing paired peers don't break operations. A self-marked peer missing `url` entirely is also surfaced as a distinct failure.
+  Docs impact: doctor_url_validation
+
 ## [1.3.3] — 2026-04-21
 
 ### Docs

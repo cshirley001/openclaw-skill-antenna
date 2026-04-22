@@ -374,6 +374,7 @@ Encrypted bootstrap bundles travel through `age` so nothing sensitive hits disk 
 - **Export never writes plaintext.** `antenna peers exchange initiate` / `reply` streams bundle JSON directly from `jq` into `age` - no plaintext temp file is ever materialized on your side.
 - **Import cleans up immediately.** The decrypted plaintext JSON gets cleaned up on normal return, validation failure, preview failure, write failure, or `Ctrl-C` (SIGINT/SIGTERM). Sensitive fields (`from_identity_secret`, `from_hooks_token`, `from_exchange_pubkey`) never outlive the import step.
 - **Expired bundles are refused.** Bundles carry an expiry timestamp and `antenna peers exchange import` refuses material past its expiry. If you genuinely need to recover from an ancient bundle (disaster-recovery only), pass `--force-expired` to override.
+- **Verify before you import.** `antenna bundle verify <file>` is a read-only dry run. It decrypts the bundle in place, checks shape / endpoint URL / freshness, and prints a safe summary (peer ID, display name, endpoint, generated/expiry, and presence booleans for the hooks token and identity secret — never the raw values). It does not write to `antenna-peers.json` or `antenna-config.json`. Useful flags: `--json` for machine-readable output, `--force-expired` to inspect a past-expiry bundle without importing, `--no-decrypt` if you already have the decrypted JSON. Great for "this bundle came in over an unclear channel, is it even addressed to me?" before committing to `peers exchange import`.
 - **Email send uses your Himalaya config.** `--send-email` doesn't make up a `From:` address. It reads the sender email directly from your Himalaya TOML config (`${HIMALAYA_CONFIG:-~/.config/himalaya/config.toml}`, `[accounts.<name>] email = "..."`) and hard-fails if it can't resolve one. Pass `--account <name>` to pick a specific configured account; interactive prompts let you confirm or switch accounts but never accept a free-text `From:` override.
 
 > **Use case:** You want Antenna to email bootstrap bundles from your personal Gmail but `antenna peers exchange pubkey --email ... --send-email` reports `could not resolve email for account 'personal'`. Check your Himalaya config (`himalaya account list -o json` tells you the account name; the TOML file tells you what email it's bound to). Add `email = "you@example.com"` under `[accounts.personal]` and retry.
@@ -491,6 +492,10 @@ Or set up a cron job for automated handling of trusted peers.
 | `antenna peers exchange pubkey --email <addr> --send-email [--account <name>]` | Email your pubkey via Himalaya (account must have `email = "..."` in TOML) |
 | `antenna peers exchange initiate <peer> --pubkey <key>` | Create an encrypted bootstrap bundle |
 | `antenna peers exchange initiate <peer> ... --send-email [--account <name>]` | Also deliver bundle inline via Himalaya |
+| `antenna bundle verify <file>` | Read-only: decrypt & sanity-check a bootstrap bundle without importing |
+| `antenna bundle verify <file> --json` | Machine-readable verdict (ok, reasons, warnings, summary) |
+| `antenna bundle verify <file> --force-expired` | Inspect a past-expiry bundle without importing |
+| `antenna bundle verify <file> --no-decrypt` | Treat `<file>` as already-decrypted bundle JSON |
 | `antenna peers exchange import <file>` | Import and decrypt a peer's bundle (refuses expired bundles) |
 | `antenna peers exchange import <file> --force-expired` | Disaster-recovery override: import despite expiry |
 | `antenna peers exchange reply <peer>` | Create a reply bundle after importing |

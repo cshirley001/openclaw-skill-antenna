@@ -458,7 +458,10 @@ antenna peers exchange pubkey [--bare]
 antenna peers exchange initiate <peer-id> [--pubkey <age1...>] [--print] [--send-email --email <addr>]
 antenna peers exchange import [file|-] [--yes]
 antenna peers exchange reply <peer-id> [options]
+antenna bundle verify <file> [--json] [--force-expired] [--no-decrypt]   # read-only inspector
 ```
+
+`antenna bundle verify` is a read-only sibling of `peers exchange import`. It runs the same shape / endpoint URL / freshness validation (shared via `lib/bundles.sh`), decrypts the bundle in place, and prints a safe summary. It never mutates `antenna-peers.json` or `antenna-config.json`, and it never prints raw `from_hooks_token` / `from_identity_secret` values — only presence booleans in human and `--json` output. Intended use: sanity-check a bootstrap bundle that arrived via email / chat / ClawReef before committing to `import`.
 
 ### Operational model
 
