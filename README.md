@@ -390,7 +390,13 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.3.3** is the current published release. It reverts the 1.3.2 README-header tweak (the attempted ClawHub render workaround did not take effect because the registry's "README" tab actually renders `SKILL.md`, not `README.md`); the original `# 🦞 Antenna — Cross-Host Messaging for OpenClaw` heading is restored. Runtime is otherwise unchanged from `1.3.1`, which rolls up the post-`v1.2.20` hardening sweep (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness) plus packaging cleanup of the ClawHub bundle and the shipped changelog.
+**v1.3.4** is the current published release. It is a diagnostics-and-hygiene roll-up on top of `v1.3.3`:
+
+- **`antenna bundle verify <file>`** — read-only sanity check for a received bootstrap bundle (decrypt, shape, endpoint URL, freshness) before running `peers exchange import`. Never prints the hooks token or identity secret; never writes to config. (REF-2000)
+- **`antenna doctor` gains three new audits**: self-peer URL shape (REF-2001, hard fail on malformed self-peer `url`), `1b. Peer-State Drift` (REF-2002, warns on orphan peer IDs in allowlists), and `6b. Secrets Directory Hygiene` (REF-2003, warns on orphan peer-scoped secrets, `.bak*` leftovers, loose `secrets/` permissions, and unknown-shape files).
+- **`antenna peers remove` prunes peer-scoped allowlist entries** (REF-1312), and **peer endpoint URLs are validated at every ingress path** — `peers add`, `setup`, `peers exchange export`, and `peers exchange import` now reject bare strings like `main` or non-HTTPS URLs rather than silently corrupting peer state (REF-1313).
+
+No breaking changes and no new security posture; this release is all diagnostic coverage and peer-state hygiene on top of the `v1.3.1` hardening baseline (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness).
 
 In-flight changes on `main` and detailed per-release notes are in the [CHANGELOG](CHANGELOG.md); the full pre-1.3.0 history lives in [`references/CHANGELOG-HISTORY.md`](references/CHANGELOG-HISTORY.md).
 

@@ -10,6 +10,17 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [1.3.4] — 2026-04-22
+
+Diagnostics and hygiene roll-up. No breaking changes; upgrade with `clawhub update antenna`.
+
+Highlights:
+- `antenna bundle verify <file>` — inspect a bootstrap bundle before importing (REF-2000).
+- `antenna doctor` gains three new audits: self-peer URL shape (REF-2001), peer-state drift section 1b (REF-2002), and on-disk secrets hygiene section 6b (REF-2003).
+- `antenna peers remove` now prunes peer-scoped allowlist entries (REF-1312); peer endpoint URLs validated at every ingress path (REF-1313).
+
 ### Added
 - **REF-2000 — `antenna bundle verify <file>`.** New read-only CLI command for sanity-checking a received `.age.txt` bootstrap bundle before running `antenna peers exchange import`. Decrypts in place, validates shape / endpoint URL / freshness, and prints a safe summary — the hooks token and identity secret never appear in human or `--json` output, only `has_hooks_token` / `has_identity_secret` presence booleans. Never writes to `antenna-peers.json` or `antenna-config.json`. Supports `--json`, `--force-expired`, and `--no-decrypt`. A new shared `lib/bundles.sh` backs both this command and `antenna peers exchange import`, so both paths agree on what "valid" means; import error messages are now more specific as a side effect (e.g. `schema_version must be 1 (got: 2)`).
   Docs impact: bundle_verification
@@ -25,6 +36,10 @@ For the complete version history prior to `1.3.0`, see:
   Docs impact: doctor_peer_state_drift
 - **REF-2003 — `antenna doctor` now audits on-disk secrets hygiene.** New section `6b. Secrets Directory Hygiene` audits the live `secrets/` directory: orphan peer-scoped secret / token files whose peer IDs are no longer in `antenna-peers.json` (the file-side counterpart to REF-1312 / 1b), backup-pattern leftovers (`.bak*`, `.backup*`, `~`, `.old`), loose `secrets/` directory permissions (target `700`), loose per-file permissions on secret-shaped files (target `600`), and unknown-shape files inside `secrets/`. All findings surface as warnings, never failures, so a peer removal that leaves stale secret files on disk does not break the health check while still getting visible attention.
   Docs impact: doctor_secrets_hygiene
+
+### Docs
+- Sync `SKILL.md` and `references/USER-GUIDE.md` with the REF-1312 / REF-1313 / REF-2002 entries above so the health-and-status and troubleshooting sections match shipped behavior before publish.
+  Docs impact: continuity_sync
 
 ## [1.3.3] — 2026-04-21
 
