@@ -192,6 +192,10 @@ Preferred encrypted flow:
 antenna peers exchange keygen
 antenna peers exchange pubkey
 antenna peers exchange initiate <peer-id> --pubkey <age1...> --print
+antenna bundle verify <bundle-file>                         # read-only: decrypt & sanity-check before importing
+antenna bundle verify <bundle-file> --json                  # machine-readable verdict
+antenna bundle verify <bundle-file> --force-expired         # inspect a past-expiry bundle without importing
+antenna bundle verify <bundle-file> --no-decrypt            # treat file as already-decrypted bundle JSON
 antenna peers exchange import <bundle-file>                 # refuses expired bundles
 antenna peers exchange import <bundle-file> --force-expired # disaster-recovery override
 antenna peers exchange reply <peer-id>
@@ -224,6 +228,7 @@ antenna peers add <peer-id> --url <new-url> --force                 # update exi
 Notes:
 - Secure Layer A requires `age` and `age-keygen`
 - Export never materializes plaintext bundle JSON on disk; `jq` streams directly into `age`. Import decrypts to a temp file but cleans up on return, validation failure, preview failure, write failure, and `Ctrl-C` (SIGINT/SIGTERM).
+- `antenna bundle verify <file>` is a read-only sanity check — it decrypts in place, validates shape / endpoint URL / freshness, and prints a safe summary (never the raw hooks token or identity secret). It never writes to `antenna-peers.json` or `antenna-config.json`. Use it before `peers exchange import` when a bundle comes from an untrusted or unclear channel.
 - Expired bundles are refused by default; use `--force-expired` only for genuine disaster recovery.
 - Optional direct-send requires `himalaya`. The sender email is resolved from your Himalaya TOML config (`${HIMALAYA_CONFIG:-~/.config/himalaya/config.toml}`, `[accounts.<name>] email = "..."`) — there is no `antenna@localhost` fallback and no free-text `From:` override. Pass `--account <name>` to pick a specific configured account; interactive flows use selection-only UX.
 - Email is convenience transport only, not part of the trust model.
@@ -364,7 +369,10 @@ The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to
 - **`Relay rejected: marker in body|headers`**: envelope-marker guard working as intended; rephrase or encode any literal `[ANTENNA_RELAY]` / `[/ANTENNA_RELAY]` content
 - **`self-id not configured - run antenna setup`**: sender is missing host identity in `antenna-config.json`; there is no `$(hostname)` fallback
 - **Encrypted exchange fails immediately**: `age` / `age-keygen` missing
-- **`Bundle expired - refusing import`**: request a fresh bundle from the peer, or pass `--force-expired` only for disaster recovery
+- **`Bundle expired - refusing import`**: request a fresh bundle from the peer, or pass `--force-expired` only for disaster recovery. To inspect an expired bundle without importing, use `antenna bundle verify <file> --force-expired`.
+- **`antenna bundle verify: decrypt failed`**: the bundle was encrypted for a different `age` public key than yours. Ask the peer to re-initiate against your current `antenna peers exchange pubkey`.
+- **`antenna bundle verify: endpoint URL rejected`**: the bundle's `from_endpoint_url` is not a valid HTTPS URL (e.g. `main`, bare host). Refuse to import; ask the peer to regenerate after fixing their self-peer URL.
+- **`antenna doctor: self-peer URL is not a valid URL`**: your own `self` peer entry has a malformed `url`. Fix it in `antenna-peers.json` or rerun `antenna setup` with a valid `--url <https://host>`. REF-1313 now rejects malformed URLs at input time, but stale pre-fix entries still need to be corrected.
 - **`Email send fails: could not resolve email for account`**: add `email = "..."` under `[accounts.<name>]` in your Himalaya TOML config, or pass `--account <other>` to pick a configured account that has an `email` set
 - **`Email send fails: himalaya not installed`**: install `himalaya` or fall back to sending the bundle file by hand
 - **`Legacy export refused - not a TTY`**: `antenna peers exchange <peer> --export` must run in an interactive terminal; switch to `antenna peers exchange initiate` for automated or remote operator handoff

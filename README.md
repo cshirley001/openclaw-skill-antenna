@@ -267,6 +267,9 @@ antenna peers exchange pubkey [--bare]                                # show you
 antenna peers exchange pubkey --email <addr> --send-email [--account <name>]   # email your pubkey via Himalaya
 antenna peers exchange initiate <peer> --pubkey <key>                 # create bootstrap bundle
 antenna peers exchange initiate <peer> --pubkey <key> --send-email [--account <name>]   # + email it
+antenna bundle verify <file>                                          # read-only: decrypt & sanity-check before importing
+antenna bundle verify <file> --json                                   # machine-readable verdict
+antenna bundle verify <file> --force-expired                          # inspect a past-expiry bundle without importing
 antenna peers exchange import <file>                                  # import peer's bundle (refuses expired bundles)
 antenna peers exchange import <file> --force-expired                  # disaster-recovery override
 antenna peers exchange reply <peer>                                   # reciprocal bundle
