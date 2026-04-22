@@ -234,6 +234,7 @@ Notes:
 - Email is convenience transport only, not part of the trust model.
 - Import shows a preview and asks before allowlist changes unless `--yes` is used.
 - `antenna peers add` refuses to overwrite an existing peer without `--force`; `--force` does a field-level merge so unspecified peer fields (including `exchange_public_key`, `self`, and any future metadata) are preserved.
+- `antenna peers remove` prunes peer-scoped allowlist entries (`allowed_inbound_peers`, `allowed_outbound_peers`, peer-scoped inbound sessions) so removing a peer does not leave stale allowlist debris behind. Peer secret files are intentionally left in place; secret deletion is an explicit operator action (see `antenna doctor` section 6b for secrets-hygiene warnings about leftover files).
 
 ### Session allowlist management
 
@@ -262,6 +263,11 @@ antenna peers test <id>
 antenna status
 antenna log --tail 50
 ```
+
+`antenna doctor` includes warn-only drift audits that complement the hard config/permission checks:
+
+- **Section 1b — Peer-State Drift.** Audits `allowed_inbound_peers`, `allowed_outbound_peers`, and peer-scoped inbound sessions in `antenna-config.json` against `antenna-peers.json`. Orphan peer IDs (allowlist entries for peers that no longer exist) are warnings, never failures. Catches the `nexus` / `bruce`-era debris class automatically.
+- **Section 6b — Secrets Directory Hygiene.** File-side counterpart to 1b. Warns on orphan peer-scoped secret / token files in `secrets/` (`antenna-peer-<id>.secret`, `hooks_token_<id>`, `peer_secret_<id>` whose `<id>` is no longer in `antenna-peers.json`), backup-pattern leftovers (`.bak*`, `.backup*`, `~`, `.old`), loose `secrets/` directory permissions (target `700`), loose per-file permissions on secret-shaped files (target `600`), and unknown-shape files inside `secrets/`.
 
 ### Testing
 
@@ -373,6 +379,8 @@ The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to
 - **`antenna bundle verify: decrypt failed`**: the bundle was encrypted for a different `age` public key than yours. Ask the peer to re-initiate against your current `antenna peers exchange pubkey`.
 - **`antenna bundle verify: endpoint URL rejected`**: the bundle's `from_endpoint_url` is not a valid HTTPS URL (e.g. `main`, bare host). Refuse to import; ask the peer to regenerate after fixing their self-peer URL.
 - **`antenna doctor: self-peer URL is not a valid URL`**: your own `self` peer entry has a malformed `url`. Fix it in `antenna-peers.json` or rerun `antenna setup` with a valid `--url <https://host>`. REF-1313 now rejects malformed URLs at input time, but stale pre-fix entries still need to be corrected.
+- **`antenna doctor: orphan peer references in config allowlists`** (warning, section 1b): allowlists in `antenna-config.json` reference peer IDs that no longer exist in `antenna-peers.json`. Remove the stale IDs with `antenna peers remove <id>` on any current peer (which also prunes its allowlist entries), or edit `antenna-config.json` directly.
+- **`antenna doctor: orphan secret file`** / **`stale backup file`** / **`secrets/ dir is not 700`** (warnings, section 6b): hygiene findings on the `secrets/` directory. None of these can authenticate a peer that isn't in the registry, but they are real leak-surface / drift signals. Move orphan files to `secrets.retired/` (or delete), rotate or remove `.bak*` leftovers, and run `chmod 700 secrets/` / `chmod 600 secrets/<file>` to tighten permissions.
 - **`Email send fails: could not resolve email for account`**: add `email = "..."` under `[accounts.<name>]` in your Himalaya TOML config, or pass `--account <other>` to pick a configured account that has an `email` set
 - **`Email send fails: himalaya not installed`**: install `himalaya` or fall back to sending the bundle file by hand
 - **`Legacy export refused - not a TTY`**: `antenna peers exchange <peer> --export` must run in an interactive terminal; switch to `antenna peers exchange initiate` for automated or remote operator handoff
