@@ -23,6 +23,12 @@ CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 PEERS_FILE="$SKILL_DIR/antenna-peers.json"
 SECRETS_DIR="$SKILL_DIR/secrets"
 
+# REF-1313: shared URL validator lives in lib/peers.sh. Sourcing here is safe
+# during first-run setup because lib/peers.sh only defines functions (no side
+# effects) and has a double-source guard.
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,7 +68,7 @@ prompt_yn() {
 # ── Parse non-interactive flags ──────────────────────────────────────────────
 
 NI_HOST_ID="" NI_DISPLAY="" NI_URL="" NI_AGENT="" NI_MODEL="" NI_TOKEN="" NI_FORCE=false
-NI_INBOX="" NI_INBOX_AUTO=""
+NI_INBOX="" NI_INBOX_AUTO="" NI_ALLOW_INSECURE=false
 INTERACTIVE=true
 
 while [[ $# -gt 0 ]]; do
@@ -76,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --inbox)         NI_INBOX="$2"; shift 2 ;;
     --inbox-auto-approve) NI_INBOX_AUTO="$2"; shift 2 ;;
     --force)         NI_FORCE=true; shift ;;
+    --allow-insecure) NI_ALLOW_INSECURE=true; shift ;;
     -h|--help)
       cat <<'EOF'
 antenna setup — First-run setup wizard for Antenna
@@ -179,9 +186,21 @@ if [[ "$INTERACTIVE" == "true" ]]; then
   header "Step 2/7 — Reachable Endpoint — Where Do Peers Find You?"
   info "This is the URL other peers use to reach your /hooks/agent endpoint."
   info "Examples: https://myhost.tailXXXXX.ts.net  or  https://your-host.example.com"
-  prompt HOST_URL "Your hook URL" ""
-  # Strip trailing slash
-  HOST_URL="${HOST_URL%/}"
+  # REF-1313: loop until the operator gives us something that looks like a
+  # reachable HTTPS URL. This prevents the 'url: "main"' class of typo from
+  # silently landing in the self-peer record and then propagating to every
+  # peer via bootstrap bundles.
+  while :; do
+    prompt HOST_URL "Your hook URL" ""
+    HOST_URL="${HOST_URL%/}"
+    if validate_peer_url "$HOST_URL" "${NI_ALLOW_INSECURE:-false}" 2>/tmp/antenna-urlcheck.$$; then
+      rm -f /tmp/antenna-urlcheck.$$
+      break
+    fi
+    err "$(cat /tmp/antenna-urlcheck.$$ 2>/dev/null || echo 'invalid URL')"
+    rm -f /tmp/antenna-urlcheck.$$
+    info "Please enter a real https:// URL peers can reach (examples above)."
+  done
 
   # Agent ID — try to auto-detect from gateway config
   header "Step 3/7 — Agent Identity — Who's Running the Show?"
@@ -378,6 +397,14 @@ else
   DISPLAY_NAME="${NI_DISPLAY:-${HOST_ID^}}"
   HOST_URL="${NI_URL:?--url is required}"
   HOST_URL="${HOST_URL%/}"
+  # REF-1313: non-interactive setup must hard-fail on a malformed URL too.
+  # Scripts that feed --url from gateway config or environment should not be
+  # able to smuggle garbage past setup. Honor NI_ALLOW_INSECURE for parity
+  # with the interactive path.
+  if ! _reason="$(validate_peer_url "$HOST_URL" "${NI_ALLOW_INSECURE:-false}" 2>&1 >/dev/null)"; then
+    err "--url is not valid: ${_reason:-invalid URL}"
+    exit 1
+  fi
   # Auto-detect primary agent from gateway config if --agent-id not given
   if [[ -z "$NI_AGENT" ]]; then
     for _cand in "$HOME/.openclaw/openclaw.json" "/etc/openclaw/openclaw.json"; do

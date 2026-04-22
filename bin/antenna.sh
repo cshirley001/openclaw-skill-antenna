@@ -36,6 +36,10 @@ CONFIG_FILE="$SKILL_DIR/antenna-config.json"
 
 # shellcheck source=../lib/config.sh
 source "$SKILL_DIR/lib/config.sh"
+# REF-1313: validate_peer_url lives in lib/peers.sh. Sourcing here makes it
+# available to cmd_peers add/update mutation paths.
+# shellcheck source=../lib/peers.sh
+source "$SKILL_DIR/lib/peers.sh"
 
 # ── Peer-shape validation helpers ────────────────────────────────────────────
 # Only iterate entries that look like real peers (object with a .url string).
@@ -300,13 +304,13 @@ cmd_peers() {
 
     add)
       local id="" url="" token_file="" display_name="" peer_secret_file="" exchange_public_key=""
-      local force="false"
+      local force="false" allow_insecure="false"
       # REF-300: track which fields were explicitly supplied on this invocation so
       # merge semantics only overwrite keys the user actually passed. Unspecified
       # fields preserve prior values; unknown top-level fields (e.g. .self set by
       # peer-exchange) are preserved automatically by the jq merge below.
       local set_url="false" set_tf="false" set_dn="false" set_psf="false" set_xpk="false"
-      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>] [--display-name <name>] [--force]}"
+      id="${1:?Usage: antenna peers add <id> --url <url> --token-file <path> [--peer-secret-file <path>] [--exchange-public-key <age-pub>] [--display-name <name>] [--force] [--allow-insecure]}"
       shift
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -316,6 +320,7 @@ cmd_peers() {
           --exchange-public-key) exchange_public_key="$2"; set_xpk="true"; shift 2 ;;
           --display-name)     display_name="$2"; set_dn="true"; shift 2 ;;
           --force)            force="true"; shift ;;
+          --allow-insecure)   allow_insecure="true"; shift ;;
           *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
       done
@@ -332,6 +337,18 @@ cmd_peers() {
       if [[ "$peer_exists" != "true" ]]; then
         if [[ -z "$url" || -z "$token_file" ]]; then
           echo "Error: --url and --token-file are required when adding a new peer" >&2; exit 1
+        fi
+      fi
+
+      # REF-1313: if --url was supplied, validate it before touching state.
+      # For pure --force updates that only change, say, --display-name, there's
+      # nothing to validate here. (If the existing .url is already corrupt from
+      # a pre-1313 install, antenna doctor will surface it.)
+      if [[ "$set_url" == "true" ]]; then
+        local _reason
+        if ! _reason="$(validate_peer_url "$url" "$allow_insecure" 2>&1 >/dev/null)"; then
+          echo "Error: --url is not valid: ${_reason:-invalid URL}" >&2
+          exit 1
         fi
       fi
 
@@ -437,11 +454,76 @@ cmd_peers() {
       ;;
 
     remove)
-      local id="${1:?Usage: antenna peers remove <id>}"
+      # REF-1312: `antenna peers remove <id>` used to only delete the registry
+      # entry. Orphaned references in allowed_inbound_peers /
+      # allowed_outbound_peers / inbox_auto_approve_peers stayed behind, which
+      # looked fine but meant a future peer with the same id would inherit
+      # stale trust the operator thought they had cleared. The live 'nexus'
+      # cleanup on 2026-04-21 surfaced this. Fix: remove the peer AND prune
+      # every peer-scoped allowlist in one coordinated mutation. Session
+      # allowlists (allowed_inbound_sessions) are NOT pruned because they hold
+      # session strings, not peer ids.
+      local id="${1:?Usage: antenna peers remove <id>}"; shift || true
+
+      local peer_exists
+      peer_exists=$(jq -r --arg id "$id" 'has($id)' "$PEERS_FILE" 2>/dev/null || echo "false")
+
       local tmp
       tmp=$(mktemp)
       jq --arg id "$id" 'del(.[$id])' "$PEERS_FILE" > "$tmp" && mv "$tmp" "$PEERS_FILE"
-      echo "Removed peer: $id"
+
+      if [[ "$peer_exists" == "true" ]]; then
+        echo "Removed peer: $id"
+      else
+        echo "Peer '$id' was not in the registry; pruning allowlists anyway."
+      fi
+
+      # Prune the three peer-scoped allowlists. `config_mutate` is the
+      # idiomatic writer; it already handles atomic swap + gateway sync.
+      local pruned_any="false"
+      local before_in before_out before_auto after_in after_out after_auto
+      before_in=$(jq -r --arg p "$id" '.allowed_inbound_peers // [] | index($p)' "$CONFIG_FILE" 2>/dev/null || echo null)
+      before_out=$(jq -r --arg p "$id" '.allowed_outbound_peers // [] | index($p)' "$CONFIG_FILE" 2>/dev/null || echo null)
+      before_auto=$(jq -r --arg p "$id" '.inbox_auto_approve_peers // [] | index($p)' "$CONFIG_FILE" 2>/dev/null || echo null)
+
+      if [[ "$before_in" != "null" || "$before_out" != "null" || "$before_auto" != "null" ]]; then
+        config_mutate '
+          .allowed_inbound_peers     = ((.allowed_inbound_peers     // []) | map(select(. != $p))) |
+          .allowed_outbound_peers    = ((.allowed_outbound_peers    // []) | map(select(. != $p))) |
+          .inbox_auto_approve_peers  = ((.inbox_auto_approve_peers  // []) | map(select(. != $p)))
+        ' --arg p "$id"
+        pruned_any="true"
+      fi
+
+      if [[ "$pruned_any" == "true" ]]; then
+        [[ "$before_in"   != "null" ]] && echo "  - pruned from allowed_inbound_peers"
+        [[ "$before_out"  != "null" ]] && echo "  - pruned from allowed_outbound_peers"
+        [[ "$before_auto" != "null" ]] && echo "  - pruned from inbox_auto_approve_peers"
+      else
+        echo "  (no allowlist entries to prune)"
+      fi
+
+      # Intentional non-action: secret and token files are NOT deleted here.
+      # Deleting secrets is destructive and hard to undo, so we keep it behind
+      # an explicit operator action. Tell them what's left so the next step
+      # is obvious.
+      local token_file peer_secret_file
+      token_file=$(jq -r --arg id "$id" '.[$id].token_file // empty' "$PEERS_FILE" 2>/dev/null || true)
+      peer_secret_file=$(jq -r --arg id "$id" '.[$id].peer_secret_file // empty' "$PEERS_FILE" 2>/dev/null || true)
+      # (They won't be in $PEERS_FILE anymore because we already deleted the
+      # entry above; walk the conventional paths instead.)
+      local residual=()
+      for candidate in \
+        "$SKILL_DIR/secrets/hooks_token_${id}" \
+        "$SKILL_DIR/secrets/antenna-peer-${id}.secret"
+      do
+        [[ -e "$candidate" ]] && residual+=("$candidate")
+      done
+      if (( ${#residual[@]} > 0 )); then
+        echo "  Leftover secret files (not deleted):"
+        for f in "${residual[@]}"; do echo "    $f"; done
+        echo "  Remove them manually if you're sure you won't re-pair: rm -i ${residual[*]}"
+      fi
       ;;
 
     test)
