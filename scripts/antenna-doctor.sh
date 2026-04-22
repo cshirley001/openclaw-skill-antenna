@@ -63,13 +63,14 @@ Usage:
   antenna doctor --gateway <path>    Override gateway config path
 
 Checks:
-  1. Antenna config files exist and are valid JSON
-  2. Gateway config exists and is valid JSON
-  3. Hooks are enabled with correct settings
-  4. Antenna agent is registered
-  5. Required allowlist entries are present
-  6. Secret files exist with correct permissions
-  7. Peer connectivity (basic)
+  1.  Antenna config files exist and are valid JSON
+  1b. No orphan peer references in config allowlists
+  2.  Gateway config exists and is valid JSON
+  3.  Hooks are enabled with correct settings
+  4.  Antenna agent is registered
+  5.  Required allowlist entries are present
+  6.  Secret files exist with correct permissions
+  7.  Peer connectivity (basic)
 EOF
       exit 0
       ;;
@@ -197,6 +198,75 @@ if [[ -f "$PEERS_FILE" ]]; then
 else
   fail "antenna-peers.json not found"
   hint "Run: antenna setup"
+fi
+
+echo ""
+
+# ── 1b. Peer-state drift (REF-2002) ───────────────────────────────────
+#
+# Cross-check peer-scoped allowlists in antenna-config.json against the peer
+# IDs actually present in antenna-peers.json. Orphan entries (allowlist
+# references to peers that no longer exist) are a warn, not a fail: the peer
+# cannot communicate anyway, but the debris is a common migration hazard and
+# previously had to be cleaned up by hand (e.g. the nexus / bruce cleanup).
+#
+# `peers remove <id>` now prunes these lists (REF-1312), but this check covers
+# configs that pre-date that fix or were edited manually.
+
+echo -e "${BOLD}1b. Peer-State Drift${NC}"
+
+if [[ -f "$CONFIG_FILE" ]] && [[ -f "$PEERS_FILE" ]] \
+   && jq empty "$CONFIG_FILE" 2>/dev/null \
+   && jq empty "$PEERS_FILE" 2>/dev/null; then
+
+  # Collect known peer IDs: every top-level key whose value is an object with
+  # a string .url (same predicate lib/peers.sh uses). This is the set of peers
+  # that are actually usable by the rest of Antenna.
+  known_peer_ids=$(jq -r '
+    to_entries
+    | map(select((.value | type) == "object" and (.value.url | type) == "string"))
+    | .[].key
+  ' "$PEERS_FILE" 2>/dev/null | sort -u)
+
+  drift_total=0
+
+  for field in allowed_inbound_peers allowed_outbound_peers inbox_auto_approve_peers; do
+    # Read the list, tolerating missing field. Non-array => empty iteration.
+    mapfile -t entries < <(jq -r --arg f "$field" '
+      if (.[$f] | type) == "array" then .[$f][] else empty end
+    ' "$CONFIG_FILE" 2>/dev/null)
+
+    orphans=()
+    for entry in "${entries[@]}"; do
+      [[ -z "$entry" ]] && continue
+      if ! grep -Fxq -- "$entry" <<<"$known_peer_ids"; then
+        orphans+=("$entry")
+      fi
+    done
+
+    if (( ${#orphans[@]} > 0 )); then
+      drift_total=$((drift_total + ${#orphans[@]}))
+      warn "$field references unknown peer(s): ${#orphans[@]}"
+      # Orphan IDs are always visible (not gated on --fix-hints): the whole
+      # point of the audit is "which peer do I need to look at?". Keep the
+      # actionable remediation command in `hint` so it only shows with
+      # --fix-hints.
+      for orphan in "${orphans[@]}"; do
+        echo -e "       ${YELLOW}- $orphan${NC}"
+      done
+      hint "Prune with: antenna peers remove <peer-id>  (or edit $CONFIG_FILE)"
+    fi
+  done
+
+  if (( drift_total == 0 )); then
+    pass "No orphan peer references in config allowlists"
+  fi
+elif [[ ! -f "$CONFIG_FILE" ]]; then
+  info "Skipped (no antenna-config.json)"
+elif [[ ! -f "$PEERS_FILE" ]]; then
+  info "Skipped (no antenna-peers.json)"
+else
+  info "Skipped (config or peers file is invalid JSON — see earlier checks)"
 fi
 
 echo ""
