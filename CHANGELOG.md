@@ -15,8 +15,14 @@ For the complete version history prior to `1.3.0`, see:
   Docs impact: bundle_verification
 
 ### Fixed
+- **REF-1312 — `antenna peers remove` now prunes peer-scoped allowlist entries.** When a peer is removed, its entries in `allowed_inbound_peers`, `allowed_outbound_peers`, and any peer-scoped inbound session allowlists are also pruned so stale allowlist debris (the `nexus` / `bruce` class of leftover) doesn't accumulate. Peer secret material is intentionally left in place; secret deletion remains an explicit operator action.
+  Docs impact: peer_remove_allowlist_pruning
+- **REF-1313 — peer endpoint URLs are validated at every ingress path.** `antenna peers add`, `antenna setup`, `antenna peers exchange export`, and `antenna peers exchange import` now reject non-HTTPS / malformed URLs (e.g. bare strings like `main`, `localhost` without a scheme) rather than silently accepting them and corrupting peer state downstream.
+  Docs impact: peer_url_validation
 - **REF-2001 — `antenna doctor` now validates the self-peer URL shape.** A malformed self-peer `url` (for example a legacy `"main"` value) is now a doctor failure rather than silently passing. Malformed non-self peer URLs are reported as warnings rather than failures so existing paired peers don't break operations. A self-marked peer missing `url` entirely is also surfaced as a distinct failure.
   Docs impact: doctor_url_validation
+- **REF-2002 — `antenna doctor` now audits peer-state drift.** New section `1b. Peer-State Drift` audits the three peer-scoped allowlists in `antenna-config.json` (`allowed_inbound_peers`, `allowed_outbound_peers`, peer-scoped inbound sessions) against `antenna-peers.json`. Orphan peer IDs (allowlist entries for peers that no longer exist) surface as warnings, never failures. Catches the `nexus` / `bruce`-era debris class automatically and complements the REF-1312 pruning at peer removal time.
+  Docs impact: doctor_peer_state_drift
 - **REF-2003 — `antenna doctor` now audits on-disk secrets hygiene.** New section `6b. Secrets Directory Hygiene` audits the live `secrets/` directory: orphan peer-scoped secret / token files whose peer IDs are no longer in `antenna-peers.json` (the file-side counterpart to REF-1312 / 1b), backup-pattern leftovers (`.bak*`, `.backup*`, `~`, `.old`), loose `secrets/` directory permissions (target `700`), loose per-file permissions on secret-shaped files (target `600`), and unknown-shape files inside `secrets/`. All findings surface as warnings, never failures, so a peer removal that leaves stale secret files on disk does not break the health check while still getting visible attention.
   Docs impact: doctor_secrets_hygiene
 

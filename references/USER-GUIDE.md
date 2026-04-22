@@ -517,7 +517,7 @@ Or set up a cron job for automated handling of trusted peers.
 | Command | What It Does |
 |---------|-------------|
 | `antenna status` | Overview: host, model, peers, security audit |
-| `antenna doctor` | Health check (config, gateway, permissions) |
+| `antenna doctor` | Health check (config, gateway, permissions, drift) |
 | `antenna log [--tail N]` | View the transaction log |
 
 ### Testing
@@ -604,6 +604,8 @@ OpenAI, Codex, OpenRouter, Nvidia, Ollama, Anthropic, and Google Gemini. Seven p
 | `Gateway hooks.token changed unexpectedly after antenna setup` | Should not happen on current versions | Setup now preserves an existing `hooks.token` used by other consumers. If you see it get overwritten, file a bug |
 | Repeated approval prompts | Stale exec overrides on Antenna agent | **Default advice:** remove any `tools.exec.security` or `tools.exec.ask` from the Antenna agent registration - explicit exec overrides cause silent relay failure (fixed in v1.2.14). `antenna setup` reruns preserve your `tools.exec` overrides if you've intentionally set them, so the default advice is a starting point, not a forced wipe |
 | Gateway won't start after setup | Config syntax error | Run `antenna doctor` to validate |
+| `antenna doctor` warns *orphan peer references in config allowlists* | Peer was removed before REF-1312, or allowlist edited by hand | Run `antenna peers remove <stale-id>` on any listed orphan (REF-1312 prunes its allowlist entries), or remove the IDs from `antenna-config.json` directly. Section 1b is warn-only; it will not block operations |
+| `antenna doctor` warns *orphan secret file* / *stale backup file* / *secrets/ dir is not 700* | Files in `secrets/` no longer match any registered peer, or permissions drifted | Move orphan files to `secrets.retired/` or delete, rotate/remove `.bak*` leftovers, and `chmod 700 secrets/` / `chmod 600 secrets/<file>`. Section 6b is warn-only — these files cannot authenticate unregistered peers, but they are real drift/leak-surface signals |
 
 ### The Nuclear Option
 
