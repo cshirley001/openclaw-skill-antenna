@@ -73,12 +73,17 @@ else
 fi
 
 # T8: interactive paths now route through the selection-only confirm helper.
-if awk '/run_bundle_command\(\)/,/^decrypt_bundle_to_json/' "$EXCHANGE" | grep -q 'confirm_from_account '; then
+# Note: awk | grep -q under `set -o pipefail` can spuriously fail when grep -q
+# short-circuits and awk gets SIGPIPE (141). Avoid that by materializing awk's
+# full output first, then grepping without -q.
+_bundle_region="$(awk '/run_bundle_command\(\)/,/^decrypt_bundle_to_json/' "$EXCHANGE")"
+if printf '%s\n' "$_bundle_region" | grep -F 'confirm_from_account ' >/dev/null; then
   pass "T8.bundle: interactive bundle path uses confirm_from_account"
 else
   fail "T8.bundle: interactive bundle path uses confirm_from_account"
 fi
-if awk '/cmd_pubkey\(\)/,/^cmd_initiate_or_reply/' "$EXCHANGE" | grep -q 'confirm_from_account '; then
+_pubkey_region="$(awk '/cmd_pubkey\(\)/,/^cmd_initiate_or_reply/' "$EXCHANGE")"
+if printf '%s\n' "$_pubkey_region" | grep -F 'confirm_from_account ' >/dev/null; then
   pass "T8.pubkey: interactive pubkey path uses confirm_from_account"
 else
   fail "T8.pubkey: interactive pubkey path uses confirm_from_account"

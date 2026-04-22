@@ -22,12 +22,15 @@ fail() { FAIL=$((FAIL + 1)); printf '  \033[31m✗\033[0m %s\n' "$1"; [[ -n "${2
 
 echo "── REF-601 regression ──"
 
-# 1. Static check: validate_bundle_json now requires expires_at format.
+# 1. Static check: validate_bundle_json delegates shape validation to the
+# shared bundle helper, and that helper requires expires_at format.
 if awk '/^validate_bundle_json\(\) \{/,/^\}/' "$SKILL_REPO/scripts/antenna-exchange.sh" \
-  | grep -q '\.expires_at'; then
-  pass "T1: validate_bundle_json checks expires_at presence/format"
+    | grep -q 'bundle_shape_reason' \
+  && awk '/^bundle_shape_reason\(\) \{/,/^\}/' "$SKILL_REPO/lib/bundles.sh" \
+    | grep -q 'expires_at'; then
+  pass "T1: validate_bundle_json delegates expires_at shape validation"
 else
-  fail "T1: validate_bundle_json checks expires_at" "no expires_at validation found"
+  fail "T1: validate_bundle_json delegates expires_at shape validation" "delegated expires_at validation not found"
 fi
 
 # 2. Static check: validate_bundle_freshness exists and compares against now.
@@ -64,19 +67,25 @@ cat > "$HARNESS" <<'BASH'
 set -euo pipefail
 die() { echo "$1" >&2; exit "${2:-1}"; }
 BUNDLE_JSON="$1"
+SKILL_REPO="$2"
+SKILL_DIR="$SKILL_REPO"
+# shellcheck source=/dev/null
+source "$SKILL_REPO/lib/peers.sh"
+# shellcheck source=/dev/null
+source "$SKILL_REPO/lib/bundles.sh"
 # shellcheck source=/dev/null
 source <(awk '
   /^now_iso\(\) \{/ , /^\}/ { print }
   /^validate_bundle_json\(\) \{/ , /^\}/ { print }
   /^validate_bundle_freshness\(\) \{/ , /^\}/ { print }
-' "$2")
+' "$SKILL_REPO/scripts/antenna-exchange.sh")
 validate_bundle_json "$BUNDLE_JSON"
 validate_bundle_freshness "$BUNDLE_JSON" false
 BASH
 chmod +x "$HARNESS"
 
 set +e
-OUT="$($HARNESS "$BUNDLE_JSON" "$SKILL_REPO/scripts/antenna-exchange.sh" 2>&1)"
+OUT="$($HARNESS "$BUNDLE_JSON" "$SKILL_REPO" 2>&1)"
 RC=$?
 set -e
 if [[ $RC -ne 0 ]] && grep -q 'Bundle expired at' <<<"$OUT"; then
@@ -92,18 +101,24 @@ cat > "$HARNESS_FORCE" <<'BASH'
 set -euo pipefail
 die() { echo "$1" >&2; exit "${2:-1}"; }
 BUNDLE_JSON="$1"
+SKILL_REPO="$2"
+SKILL_DIR="$SKILL_REPO"
+# shellcheck source=/dev/null
+source "$SKILL_REPO/lib/peers.sh"
+# shellcheck source=/dev/null
+source "$SKILL_REPO/lib/bundles.sh"
 # shellcheck source=/dev/null
 source <(awk '
   /^now_iso\(\) \{/ , /^\}/ { print }
   /^validate_bundle_json\(\) \{/ , /^\}/ { print }
   /^validate_bundle_freshness\(\) \{/ , /^\}/ { print }
-' "$2")
+' "$SKILL_REPO/scripts/antenna-exchange.sh")
 validate_bundle_json "$BUNDLE_JSON"
 validate_bundle_freshness "$BUNDLE_JSON" true
 BASH
 chmod +x "$HARNESS_FORCE"
 
-if "$HARNESS_FORCE" "$BUNDLE_JSON" "$SKILL_REPO/scripts/antenna-exchange.sh" >/dev/null 2>&1; then
+if "$HARNESS_FORCE" "$BUNDLE_JSON" "$SKILL_REPO" >/dev/null 2>&1; then
   pass "T4: force_expired override allows deliberate import"
 else
   fail "T4: force_expired override allows deliberate import"

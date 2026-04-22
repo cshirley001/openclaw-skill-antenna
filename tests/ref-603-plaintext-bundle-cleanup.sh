@@ -211,11 +211,24 @@ simulated_import "$1"
 BASH
 chmod +x "$HARNESS3"
 
-"$HARNESS3" "$PLAINTEXT3" >/dev/null 2>&1 &
+setsid "$HARNESS3" "$PLAINTEXT3" >/dev/null 2>&1 &
 BG_PID=$!
-# Give it a moment to install the trap and enter sleep.
-sleep 0.3
-kill -TERM -- -"$BG_PID" 2>/dev/null || kill -TERM "$BG_PID" 2>/dev/null || true
+# Give the bash trap and the python signal handler time to install.
+sleep 0.5
+# Send SIGTERM to the whole process group so the python child actually receives it.
+kill -TERM -- -"$BG_PID" 2>/dev/null || true
+# Belt-and-suspenders: also target any python child of the harness directly.
+for child in $(pgrep -P "$BG_PID" 2>/dev/null); do
+  kill -TERM "$child" 2>/dev/null || true
+done
+kill -TERM "$BG_PID" 2>/dev/null || true
+# Bounded wait so a misbehaving harness can't hang the whole suite.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  kill -0 "$BG_PID" 2>/dev/null || break
+  sleep 0.2
+done
+kill -KILL -- -"$BG_PID" 2>/dev/null || true
+kill -KILL "$BG_PID" 2>/dev/null || true
 wait "$BG_PID" 2>/dev/null || true
 
 if [[ ! -e "$PLAINTEXT3" ]]; then
