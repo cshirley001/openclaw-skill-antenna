@@ -12,6 +12,71 @@ For the complete version history prior to `1.3.0`, see:
 
 _No unreleased changes._
 
+## [1.4.0] — 2026-04-25
+
+Relay agent simplification. **No protocol change, no sender-side change**
+— fully backward-compatible with v1.3.x peers (BETTYXX, devon1545,
+clawreef can keep sending unchanged).
+
+Highlights:
+- Relay agent now performs **1 tool call per inbound** (was 3): a single
+  `exec` of `scripts/antenna-relay-deliver.sh`, which writes the temp
+  file, runs the verifier, and calls `openclaw gateway call sessions.send`
+  directly. The agent no longer calls `write` or `sessions_send` itself.
+- Smaller relay-agent prompt surface — less room for prompt injection,
+  fewer allowlist exec shapes to maintain, simpler debugging.
+- 7-test plan executed on bettyxix before commit (happy / stale-ts /
+  bad-auth / unknown-peer / bad-target-session / concurrent / log-shape).
+
+### Added
+- **`scripts/antenna-relay-deliver.sh`** — single-call wrapper. Inputs:
+  raw envelope on stdin (preferred) or `$1` file path (back-compat).
+  Outputs one of: `Relayed`, `Queued: ref #<ref> from <from>`,
+  `Rejected: <reason>`, `Error: <description>` on a single stdout line.
+  All inbound delivery flows through this script; the relay agent simply
+  echoes its stdout. Logs every call to `antenna.log` with `DELIVER` tag
+  for traceability alongside the existing `INBOUND` / `OUTBOUND` lines.
+
+### Changed
+- **`agent/AGENTS.md`** — reduced to a single-recipe agent: receive raw
+  inbound text, exec `bash ../scripts/antenna-relay-deliver.sh` with the
+  message piped on stdin, reply with the wrapper's stdout exactly. No
+  more file writing, no more `sessions_send`, no more JSON parsing in
+  the agent layer.
+
+### Fixed
+- **Silent-failure path on gateway error.** When `sessions.send` returns
+  nonzero (e.g. `session not found`), the wrapper used to die under
+  `set -e` before printing its `Error:` line, leaving the relay agent
+  with empty stdout. Now the gateway call is wrapped in `|| true`, the
+  raw CLI error text is captured as a fallback when the response isn't
+  JSON, and the wrapper exits 0 with a structured `Error: sessions.send
+  failed — <reason>` line so the relay agent can forward it cleanly.
+  Caught by the v1.4 test plan's bad-target-session case.
+
+### Notes for testers / operators
+- `allowed_inbound_sessions` in `antenna-config.json` is the first line
+  of defense, *before* the gateway is consulted. Test sessions must be
+  allow-listed (or omit `target_session` to use
+  `default_target_session`) before they will accept inbound traffic.
+- Per-peer rate limit (default 10 messages/min) is unchanged from
+  v1.3.x; concurrent v1.4 wrapper runs respect it.
+
+### Rollback
+```
+cd ~/clawd/skills/antenna
+git checkout -- agent/AGENTS.md SKILL.md README.md CHANGELOG.md
+rm -f scripts/antenna-relay-deliver.sh
+openclaw gateway restart
+```
+Sender side stays compatible regardless, so no peer coordination needed.
+
+### Why this is `1.4.0` and not `2.0.0`
+`2.0.0` is reserved for the no-LLM-on-inbound architecture (the
+"Antenna Plugin" SKU). v1.4.0 still uses the relay agent — it just
+narrows the agent's job to a single exec. See
+`docs/planning/antenna-v1.4-relay-simplification.md`.
+
 ## [1.3.4] — 2026-04-22
 
 Diagnostics and hygiene roll-up. No breaking changes; upgrade with `clawhub update antenna`.

@@ -390,7 +390,13 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.3.4** is the current published release. It is a diagnostics-and-hygiene roll-up on top of `v1.3.3`:
+**v1.4.0** is the current published release. It is a relay-agent simplification on top of `v1.3.4`. **No protocol or sender-side change** — fully backward-compatible with v1.3.x peers.
+
+- **Relay agent now performs 1 tool call per inbound** (was 3). The agent simply execs `scripts/antenna-relay-deliver.sh` with the raw envelope on stdin and forwards the wrapper's one-line stdout (`Relayed`, `Queued: ...`, `Rejected: ...`, or `Error: ...`). The wrapper handles file writing, verification, and the gateway `sessions.send` call internally — the agent no longer touches `write` or `sessions_send` directly.
+- **Smaller prompt-injection surface** in the relay agent. Less room for the agent's instructions to drift, fewer allowlist exec shapes to maintain, simpler debugging.
+- **Why `1.4.0` and not `2.0.0`**: `2.0.0` is reserved for the no-LLM-on-inbound architecture (the "Antenna Plugin" SKU). v1.4 still uses the relay agent, it just narrows its job. See `docs/planning/antenna-v1.4-relay-simplification.md`.
+
+### Previously, in `v1.3.4`:
 
 - **`antenna bundle verify <file>`** — read-only sanity check for a received bootstrap bundle (decrypt, shape, endpoint URL, freshness) before running `peers exchange import`. Never prints the hooks token or identity secret; never writes to config. (REF-2000)
 - **`antenna doctor` gains three new audits**: self-peer URL shape (REF-2001, hard fail on malformed self-peer `url`), `1b. Peer-State Drift` (REF-2002, warns on orphan peer IDs in allowlists), and `6b. Secrets Directory Hygiene` (REF-2003, warns on orphan peer-scoped secrets, `.bak*` leftovers, loose `secrets/` permissions, and unknown-shape files).

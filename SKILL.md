@@ -12,13 +12,13 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.3.4
+  version: 1.4.0
   repository: "https://github.com/cshirley001/openclaw-skill-antenna"
   homepage: "https://github.com/cshirley001/openclaw-skill-antenna"
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.3.4)
+# Antenna — Inter-Host OpenClaw Messaging (v1.4.0)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
