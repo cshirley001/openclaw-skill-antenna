@@ -293,11 +293,11 @@ antenna inbox approve all            # approve everything pending
 antenna inbox approve 1,3,5-7       # selective approval (commas and ranges)
 antenna inbox deny all               # reject everything pending
 antenna inbox deny 2,4               # selective denial
-antenna inbox drain                  # output delivery JSON for approved, remove denied
+antenna inbox drain                  # deliver all approved (gateway sessions.send), remove denied
 antenna inbox clear                  # purge all processed items
 ```
 
-**Delivery flow:** `antenna inbox drain` outputs one JSON line per approved message with `sessionKey` and `message` fields. The calling agent (your primary assistant) reads these and calls `sessions_send` for each. This avoids re-entering the relay agent via `/hooks/agent`.
+**Delivery flow:** `antenna inbox drain` iterates every approved item and delivers each via `openclaw gateway call sessions.send` (the same gateway RPC the relay path uses). On success, the item transitions to `delivered`; on RPC failure it transitions to `failed` with `last_error` recorded for triage. Denied items are removed. The script returns non-zero if any delivery failed, prints a one-line summary on stderr, and logs each per-ref result to `antenna.log`. The calling agent's role is a single `exec` of `antenna inbox drain` — no MCP tool calls required.
 
 **Configuration:**
 ```json
@@ -313,7 +313,7 @@ Notes:
 - Auto-approve list lets trusted peers bypass the queue (progressive trust)
 - Queue file is local runtime state (gitignored)
 - Ref numbers auto-increment and support range selection
-- When inbox is enabled, the relay agent only needs `exec` (not `sessions_send`), reducing its required permissions
+- When inbox is enabled, the relay agent only needs `exec` (not `sessions_send`), reducing its required permissions. Drain itself also stays in script-only territory — it shells out to `openclaw gateway call sessions.send` rather than going through an MCP tool, so cron jobs can drain the queue without an agent in the loop.
 
 **Heartbeat / cron integration:**
 

@@ -301,35 +301,67 @@ cmd_drain_locked() {
     info "No messages to drain (nothing approved or denied)"
     return 0
   fi
-  
-  # Output delivery instructions as JSON (one per line).
-  # The calling agent (your assistant, cron job, etc.) should read these and call
-  # sessions_send for each "deliver" action. This avoids re-entering the
-  # relay agent via /hooks/agent which could re-queue the message.
-  #
-  # Each line is a self-contained delivery instruction:
-  #   {"action":"deliver","ref":1,"sessionKey":"agent:lobster:main","message":"...","from":"lobstery"}
-  #   {"action":"remove","ref":2,"from":"unknown_peer"}
-  
-  if [[ "$approved_count" -gt 0 ]]; then
-    echo "$approved" | jq -c '.[] | {action: "deliver", ref: .ref, sessionKey: .session_key, message: .full_message, from: .from}'
-  fi
-  
+
+  # Remove denied items up front — no delivery needed.
   if [[ "$denied_count" -gt 0 ]]; then
-    echo "$queue" | jq -c '.[] | select(.status == "denied") | {action: "remove", ref: .ref, from: .from}'
+    queue=$(echo "$queue" | jq '[.[] | select(.status != "denied")]')
   fi
-  
-  # Mark approved items as delivered, remove denied items
-  queue=$(echo "$queue" | jq '
-    [.[] | 
-      if .status == "approved" then .status = "delivered"
-      elif .status == "denied" then empty
-      else . end
-    ]')
+
+  local delivered_count=0
+  local failed_count=0
+
+  if [[ "$approved_count" -gt 0 ]]; then
+    local refs
+    refs=$(echo "$approved" | jq -r '.[].ref')
+
+    local ref
+    for ref in $refs; do
+      local item session_key message
+      item=$(echo "$queue" | jq --argjson r "$ref" '.[] | select(.ref == $r)')
+      session_key=$(echo "$item" | jq -r '.session_key')
+      message=$(echo "$item" | jq -r '.full_message')
+
+      local rpc_params
+      rpc_params=$(jq -nc --arg key "$session_key" --arg msg "$message" \
+        '{key: $key, message: $msg}')
+
+      local rpc_json rpc_status rpc_runid rpc_err
+      rpc_json=$(openclaw gateway call sessions.send \
+        --params "$rpc_params" \
+        --json \
+        --timeout 60000 2>&1) || true
+
+      rpc_status=$(printf '%s' "$rpc_json" | jq -r '.status // empty' 2>/dev/null || true)
+      rpc_runid=$(printf '%s' "$rpc_json" | jq -r '.runId // empty' 2>/dev/null || true)
+      rpc_err=$(printf '%s' "$rpc_json" | jq -r '.error // empty' 2>/dev/null || true)
+
+      if [[ "$rpc_status" == "started" ]]; then
+        queue=$(echo "$queue" | jq --argjson r "$ref" \
+          '[.[] | if .ref == $r then .status = "delivered" | del(.last_error) else . end]')
+        delivered_count=$((delivered_count + 1))
+        log_entry "action:deliver | ref:$ref | session:$session_key | runId:$rpc_runid"
+        ok "Delivered ref #$ref → $session_key (runId: $rpc_runid)" >&2
+      else
+        if [[ -z "$rpc_err" ]]; then
+          rpc_err=$(printf '%s' "$rpc_json" | tr '\n' ' ' | sed 's/  */ /g' | head -c 300)
+        fi
+        queue=$(echo "$queue" | jq --argjson r "$ref" --arg err "$rpc_err" \
+          '[.[] | if .ref == $r then .status = "failed" | .last_error = $err else . end]')
+        failed_count=$((failed_count + 1))
+        log_entry "action:deliver_failed | ref:$ref | session:$session_key | error:$rpc_err"
+        err "Failed ref #$ref → $session_key — $rpc_err"
+      fi
+    done
+  fi
+
   write_queue "$queue"
-  
-  log_entry "action:drain | delivered:$approved_count | denied:$denied_count"
-  info "Drained: $approved_count to deliver, $denied_count denied (removed)" >&2
+
+  log_entry "action:drain | delivered:$delivered_count | failed:$failed_count | denied:$denied_count"
+  info "Drained: $delivered_count delivered, $failed_count failed, $denied_count denied (removed)" >&2
+
+  if [[ "$failed_count" -gt 0 ]]; then
+    return 1
+  fi
 }
 
 cmd_drain() {

@@ -10,7 +10,33 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Changed
+- **`antenna inbox drain` now delivers in-script.** Instead of emitting JSON
+  delivery instructions for a calling agent to act on, drain iterates every
+  approved item and calls `openclaw gateway call sessions.send` directly —
+  the same gateway RPC the relay path uses (`scripts/antenna-relay-deliver.sh`).
+  The calling agent's role drops to a single `exec` of `antenna inbox drain`;
+  no MCP `sessions_send` tool calls, no JSON parsing on the agent side.
+  Cron jobs can drain the queue without an agent in the loop.
+- **Status semantics tightened.** Drain no longer pre-marks items as
+  `delivered`. An item transitions to `delivered` only after a successful
+  gateway RPC, or to `failed` (with `last_error` recorded) on RPC failure.
+  Denied items are still removed up front. Failed items remain visible in
+  the queue for operator triage; `clear` sweeps them when ready.
+- **Drain reports per-ref outcome.** Each delivery is logged to `antenna.log`
+  with `INBOX | action:deliver | ref:N | session:… | runId:…` (or
+  `action:deliver_failed | ref:N | session:… | error:…`). Drain prints a
+  one-line summary on stderr (`Drained: N delivered, M failed, K denied
+  (removed)`) and exits non-zero if any delivery failed, so cron / agent
+  callers can detect partial drain.
+
+### Fixed
+- **Drain state-bug.** Old behavior marked all approved items as `delivered`
+  before the calling agent had a chance to call `sessions_send`. If the
+  agent skipped or failed, the queue lied about delivery status. Now status
+  follows the actual gateway RPC outcome.
+
+  Docs impact: inbox_drain_delivery
 
 ## [1.4.0] — 2026-04-25
 

@@ -199,7 +199,7 @@ antenna inbox                    # list pending
 antenna inbox count              # pending count (great for heartbeats/cron)
 antenna inbox show 3             # read a message
 antenna inbox approve 1,3,5-7    # approve selectively
-antenna inbox drain              # process approved/denied
+antenna inbox drain              # deliver all approved (gateway sessions.send), remove denied
 ```
 
 Progressive trust: messages from your laptop relay instantly; messages from a new peer queue until you're comfortable. Queue mutations are protected by `flock` transaction locking so parallel approvals, denials, and drains can't corrupt state.

@@ -412,7 +412,9 @@ antenna inbox deny 2,4
 # Approve everything
 antenna inbox approve all
 
-# Process approved/denied items
+# Deliver all approved items (via gateway sessions.send), remove denied.
+# Each item transitions to "delivered" on RPC success or "failed" on RPC
+# failure (with last_error recorded). Non-zero exit if any delivery failed.
 antenna inbox drain
 
 # Clean up
@@ -509,7 +511,7 @@ Or set up a cron job for automated handling of trusted peers.
 | `antenna inbox show <ref>` | Read a specific queued message |
 | `antenna inbox approve <refs>` | Approve messages (e.g., `1,3,5-7` or `all`) |
 | `antenna inbox deny <refs>` | Deny messages |
-| `antenna inbox drain` | Process approved/denied items |
+| `antenna inbox drain` | Deliver all approved (via gateway `sessions.send`); remove denied |
 | `antenna inbox clear` | Purge all processed items |
 
 ### Diagnostics & Status
