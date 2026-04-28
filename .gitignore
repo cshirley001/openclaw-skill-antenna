@@ -27,6 +27,13 @@ antenna-*.lock
 *.pre-ticket-*
 *.age.txt
 references/GAPS.md
+references/ANTV4-PHASE-1-REVIEW.md
+references/ANTV4-VALIDATION-CHECKLIST-SHORT.md
+references/ANTV4-VALIDATION-CHECKLIST.md
+references/copy-draft-v1.2.0.md
+references/issues.md
+references/setup-completion-v1.1.8.md
+agent/auth-profiles.json
 docs/
 bruce_bundle1.txt
 bruce_reply_bundle1.txt
