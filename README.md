@@ -134,10 +134,13 @@ antenna-send.sh                    POST /hooks/agent
                                               │     message to    │
                                               │     temp file     │
                                               │  2. exec relay    │
-                                              │     file script   │
-                                              │  3. sessions_send │
-                                              │     (if valid)    │
+                                              │     deliver       │
+                                              │     wrapper       │
                                               └────────┬──────────┘
+                                                       │
+                                                       ▼
+                                             relay-deliver.sh
+                                   validates + delivers + cleans up
                                                        │
                                                        ▼
                                                 Target Session
@@ -230,7 +233,7 @@ antenna test-suite --report
 |------|-------|----------------|
 | A | 15 | Relay parsing, validation, full-session-key enforcement, inbox queue behavior, and locking-sensitive state checks |
 | B | 4 | Model correctly chooses `write` first, preserves raw envelope content, and uses a unique relay temp path |
-| C | 4 | Model correctly continues with `sessions_send` using relay output and an allowlisted full session key |
+| C | 4 | Model correctly follows the two-step write→exec relay contract and leaves delivery to the wrapper |
 
 ---
 
@@ -319,7 +322,7 @@ antenna uninstall [--dry-run] [--purge-skill-dir]   # clean removal
 | `Email send fails: could not resolve email for account` | Himalaya account has no `email` in TOML | Add `email = "..."` under `[accounts.<name>]` or pass `--account <other>` |
 | `Legacy export refused - not a TTY` | `antenna peers exchange <peer> --export` was piped/redirected | Run it in an interactive terminal, or use `antenna peers exchange initiate` for automation |
 | `peers add` refuses to update existing peer | By design | Pass `--force` to merge the fields you supplied; other fields are preserved |
-| `exec denied: allowlist miss` | Shell metacharacters in command | Use only simple commands; `antenna-relay-file.sh` accepts a file path only |
+| `exec denied: allowlist miss` | Shell metacharacters in command | Use only simple commands; `antenna-relay-deliver.sh` accepts a file path only |
 | Repeated approval prompts | Stale exec overrides (default advice) | Default is **not** to set `tools.exec.security`/`tools.exec.ask` on the Antenna agent (v1.2.14+). Setup reruns now preserve your overrides if you've intentionally customized them. |
 | Unknown sender rejected | Peer not in inbound allowlist | Add to `allowed_inbound_peers` |
 | Exchange fails | `age` not installed | `apt install age` |
@@ -390,21 +393,9 @@ This is the **Helping Claw** vision: a community where agents help each other �
 
 ## Version
 
-**v1.4.0** is the current published release. It is a relay-agent simplification on top of `v1.3.4`. **No protocol or sender-side change** — fully backward-compatible with v1.3.x peers.
+**v1.5.1** — current local release. Fresh-install relay-agent contract fix plus v1.5.0's in-script inbox drain delivery. Backward-compatible with v1.4.x and v1.3.x peers.
 
-- **Relay agent now performs 1 tool call per inbound** (was 3). The agent simply execs `scripts/antenna-relay-deliver.sh` with the raw envelope on stdin and forwards the wrapper's one-line stdout (`Relayed`, `Queued: ...`, `Rejected: ...`, or `Error: ...`). The wrapper handles file writing, verification, and the gateway `sessions.send` call internally — the agent no longer touches `write` or `sessions_send` directly.
-- **Smaller prompt-injection surface** in the relay agent. Less room for the agent's instructions to drift, fewer allowlist exec shapes to maintain, simpler debugging.
-- **Why `1.4.0` and not `2.0.0`**: `2.0.0` is reserved for the no-LLM-on-inbound architecture (the "Antenna Plugin" SKU). v1.4 still uses the relay agent, it just narrows its job. See `docs/planning/antenna-v1.4-relay-simplification.md`.
-
-### Previously, in `v1.3.4`:
-
-- **`antenna bundle verify <file>`** — read-only sanity check for a received bootstrap bundle (decrypt, shape, endpoint URL, freshness) before running `peers exchange import`. Never prints the hooks token or identity secret; never writes to config. (REF-2000)
-- **`antenna doctor` gains three new audits**: self-peer URL shape (REF-2001, hard fail on malformed self-peer `url`), `1b. Peer-State Drift` (REF-2002, warns on orphan peer IDs in allowlists), and `6b. Secrets Directory Hygiene` (REF-2003, warns on orphan peer-scoped secrets, `.bak*` leftovers, loose `secrets/` permissions, and unknown-shape files).
-- **`antenna peers remove` prunes peer-scoped allowlist entries** (REF-1312), and **peer endpoint URLs are validated at every ingress path** — `peers add`, `setup`, `peers exchange export`, and `peers exchange import` now reject bare strings like `main` or non-HTTPS URLs rather than silently corrupting peer state (REF-1313).
-
-No breaking changes and no new security posture; this release is all diagnostic coverage and peer-state hygiene on top of the `v1.3.1` hardening baseline (session-resolution fixes, bootstrap plaintext cleanup, marker/freshness validation, constant-time peer-secret checks, expired-bundle refusal, Himalaya sender-address resolution, setup-preserved operator exec policy, model-test nonce correlation / fast-fail / gateway-sync fixes, peer merge-safety, pair-wizard email-failure classification, the refreshed cross-provider test harness).
-
-In-flight changes on `main` and detailed per-release notes are in the [CHANGELOG](CHANGELOG.md); the full pre-1.3.0 history lives in [`references/CHANGELOG-HISTORY.md`](references/CHANGELOG-HISTORY.md).
+For full release notes see [CHANGELOG](CHANGELOG.md); pre-1.3.0 history in [`references/CHANGELOG-HISTORY.md`](references/CHANGELOG-HISTORY.md).
 
 ## Getting Help
 

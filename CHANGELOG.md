@@ -10,33 +10,49 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
-### Changed
-- **`antenna inbox drain` now delivers in-script.** Instead of emitting JSON
-  delivery instructions for a calling agent to act on, drain iterates every
-  approved item and calls `openclaw gateway call sessions.send` directly —
-  the same gateway RPC the relay path uses (`scripts/antenna-relay-deliver.sh`).
-  The calling agent's role drops to a single `exec` of `antenna inbox drain`;
-  no MCP `sessions_send` tool calls, no JSON parsing on the agent side.
-  Cron jobs can drain the queue without an agent in the loop.
+## [1.5.1] — 2026-04-28
+
+### Fixed
+- **Fresh-install relay-agent contract drift.** Previous shipped docs mixed two
+  different relay contracts: `agent/AGENTS.md` told the relay agent to exec the
+  wrapper with raw message content on stdin and not call `write`, while
+  `agent/TOOLS.md` and the `scripts/antenna-relay-deliver.sh` header documented
+  the allowlist-safe file-path invocation shape. On hosts with accumulated
+  context the agent often improvised the correct write→exec behavior anyway; on
+  fresh installs it could follow the stale AGENTS contract literally and fail
+  relay handling with `MALFORMED (no envelope markers)`. The shipped relay-agent
+  contract is now the canonical two-step recipe: `write` the raw envelope to
+  `/tmp/antenna-relay/msg-<unique-id>.txt`, then `exec bash
+  ../scripts/antenna-relay-deliver.sh <that-path>`.
+- **Relay-agent docs reconciled across shipped surfaces.** `agent/AGENTS.md`,
+  `agent/TOOLS.md`, `SKILL.md`, `README.md`, and `references/USER-GUIDE.md` now
+  all describe the same current relay path: the agent performs exactly two tool
+  calls (`write`, then `exec`), `antenna-relay-deliver.sh` handles validation +
+  delivery + cleanup, and the agent never calls `sessions_send` directly.
+
+## [1.5.0] — 2026-04-27
+
+In-script inbox drain delivery. **No protocol change, no sender-side
+change** — fully backward-compatible with v1.4.x and v1.3.x peers.
+
+Highlights:
+- **`antenna inbox drain` now delivers in-script.** Instead of emitting
+  JSON delivery instructions for a calling agent to act on, drain iterates
+  every approved item and calls `openclaw gateway call sessions.send`
+  directly — the same gateway RPC the relay path uses. The calling agent's
+  role drops to a single `exec` of `antenna inbox drain`; no MCP
+  `sessions_send` tool calls, no JSON parsing on the agent side. Cron jobs
+  can drain the queue without an agent in the loop.
 - **Status semantics tightened.** Drain no longer pre-marks items as
   `delivered`. An item transitions to `delivered` only after a successful
   gateway RPC, or to `failed` (with `last_error` recorded) on RPC failure.
   Denied items are still removed up front. Failed items remain visible in
   the queue for operator triage; `clear` sweeps them when ready.
-- **Drain reports per-ref outcome.** Each delivery is logged to `antenna.log`
-  with `INBOX | action:deliver | ref:N | session:… | runId:…` (or
-  `action:deliver_failed | ref:N | session:… | error:…`). Drain prints a
-  one-line summary on stderr (`Drained: N delivered, M failed, K denied
-  (removed)`) and exits non-zero if any delivery failed, so cron / agent
-  callers can detect partial drain.
-
-### Fixed
-- **Drain state-bug.** Old behavior marked all approved items as `delivered`
-  before the calling agent had a chance to call `sessions_send`. If the
-  agent skipped or failed, the queue lied about delivery status. Now status
-  follows the actual gateway RPC outcome.
-
-  Docs impact: inbox_drain_delivery
+- **Drain reports per-ref outcome.** Each delivery is logged to
+  `antenna.log` with `INBOX | action:deliver | ref:N | session:… | runId:…`
+  (or `action:deliver_failed | ref:N | session:… | error:…`). Drain prints
+  a one-line summary on stderr and exits non-zero if any delivery failed,
+  so cron / agent callers can detect partial drain.
 
 ## [1.4.0] — 2026-04-25
 

@@ -12,13 +12,13 @@ description: >
   "cross-host message", "inter-host relay", "ping PEER", "peer list",
   "check antenna inbox", "approve message".
 metadata:
-  version: 1.4.0
+  version: 1.5.1
   repository: "https://github.com/cshirley001/openclaw-skill-antenna"
   homepage: "https://github.com/cshirley001/openclaw-skill-antenna"
 postInstall: "bash skills/antenna/bin/antenna.sh setup"
 ---
 
-# Antenna — Inter-Host OpenClaw Messaging (v1.4.0)
+# Antenna — Inter-Host OpenClaw Messaging (v1.5.1)
 
 Send messages between OpenClaw instances over reachable HTTPS via the built-in `/hooks/agent` webhook.
 
@@ -48,12 +48,12 @@ Messages flow through a script-first relay pipeline:
 
 1. **Sender** runs `antenna-send.sh` which builds an `[ANTENNA_RELAY]` envelope and POSTs it to the recipient's `/hooks/agent` endpoint.
 2. **Recipient gateway** dispatches to the dedicated **Antenna agent**.
-3. **Antenna agent** writes the raw inbound message to a temp file using the `write` tool (structured API call, no shell metacharacter concerns).
-4. **Antenna agent** execs `antenna-relay-file.sh` with the file path — the script feeds the message to `antenna-relay.sh` which deterministically parses, validates, and formats it.
-5. **Antenna agent** calls `sessions_send` to inject the formatted message into the target session.
-6. **Message appears** persistently in the target conversation thread.
+3. **Antenna agent** writes the raw inbound message to a temp file using the `write` tool.
+4. **Antenna agent** execs `antenna-relay-deliver.sh` with that file path as its single argument.
+5. **The wrapper** reads the file, invokes the relay engine internally, handles verification + local delivery + cleanup, and prints one status line.
+6. **Message appears** persistently in the target conversation thread when accepted.
 
-The LLM never performs relay parsing, encoding, or transformation; the scripts do all processing.
+The LLM never performs relay parsing, delivery formatting, or session-routing logic; the scripts do all processing.
 
 ## Trust Model
 
@@ -313,7 +313,7 @@ Notes:
 - Auto-approve list lets trusted peers bypass the queue (progressive trust)
 - Queue file is local runtime state (gitignored)
 - Ref numbers auto-increment and support range selection
-- When inbox is enabled, the relay agent only needs `exec` (not `sessions_send`), reducing its required permissions. Drain itself also stays in script-only territory — it shells out to `openclaw gateway call sessions.send` rather than going through an MCP tool, so cron jobs can drain the queue without an agent in the loop.
+- The relay agent now uses only `write` + `exec`; it never calls `sessions_send` directly. Drain also stays in script-only territory — it shells out to `openclaw gateway call sessions.send`, so cron jobs can drain the queue without an agent in the loop.
 
 **Heartbeat / cron integration:**
 
@@ -384,8 +384,8 @@ The pairing wizard (`antenna pair`) offers ClawReef invites as an alternative to
 - **`Email send fails: could not resolve email for account`**: add `email = "..."` under `[accounts.<name>]` in your Himalaya TOML config, or pass `--account <other>` to pick a configured account that has an `email` set
 - **`Email send fails: himalaya not installed`**: install `himalaya` or fall back to sending the bundle file by hand
 - **`Legacy export refused - not a TTY`**: `antenna peers exchange <peer> --export` must run in an interactive terminal; switch to `antenna peers exchange initiate` for automated or remote operator handoff
-- **Message sent but not visible**: ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true` on the receiver; the relay agent uses cross-agent `sessions_send`, which requires both settings. Also ensure `sandbox: { mode: "off" }` on the Antenna agent — sandboxed sessions silently clamp visibility to `tree`, blocking cross-agent delivery
-- **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-file.sh` wrapper accepts a file path only
+- **Message sent but not visible**: ensure `tools.sessions.visibility = "all"` and `tools.agentToAgent.enabled = true` on the receiver; the relay delivery wrapper uses gateway session delivery, which still depends on those settings. Also ensure `sandbox: { mode: "off" }` on the Antenna agent — sandboxed sessions silently clamp visibility to `tree`, blocking cross-agent delivery
+- **Exec denied / allowlist miss**: ensure relay agent instructions use only simple commands (no `$(...)`, heredocs, or chaining); the `antenna-relay-deliver.sh` wrapper accepts a file path only
 - **Repeated approval prompts**: ensure Antenna agent has `sandbox: { mode: "off" }` in registration. Default advice is **not** to set `tools.exec.security` or `tools.exec.ask` on the Antenna agent — explicit exec overrides cause silent relay failure (fixed in v1.2.14). If you've intentionally customized `tools.exec` on the agent, setup reruns now preserve your overrides instead of wiping them.
 - **`antenna peers add` refuses to update an existing peer**: by design — pass `--force` to update fields on a paired peer; without it, the command refuses to clobber trust material
 
@@ -407,7 +407,7 @@ skills/antenna/
 ├── scripts/
 │   ├── antenna-send.sh
 │   ├── antenna-relay.sh
-│   ├── antenna-relay-file.sh           # v1.1.8 — file-based relay input (preferred)
+│   ├── antenna-relay-file.sh           # internal file-based relay adapter
 │   ├── antenna-relay-exec.sh            # v1.1.6 — base64 wrapper (legacy fallback)
 │   ├── antenna-pair.sh                  # v1.1.9 — interactive peer pairing wizard
 │   ├── antenna-health.sh
@@ -447,7 +447,7 @@ On each host:
   - **Default advice:** do not set `tools.exec.security` or `tools.exec.ask` on the Antenna agent — explicit exec overrides cause silent relay failure (see v1.2.14 changelog). If you've intentionally customized these, setup reruns now preserve your overrides rather than wiping them.
 - `hooks.allowedAgentIds` includes `"antenna"`
 - `hooks.allowedSessionKeyPrefixes` includes `"hook:antenna"`
-- `tools.sessions.visibility` set to `"all"` (required for cross-agent `sessions_send`)
+- `tools.sessions.visibility` set to `"all"` (required for cross-session relay delivery)
 - `tools.agentToAgent.enabled` set to `true`
 
 ## Support
