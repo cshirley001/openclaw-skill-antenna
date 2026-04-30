@@ -19,8 +19,7 @@ Two tool calls, in order:
    exec command — just `bash <script> <file-path>`. The wrapper reads the file,
    handles verification + delivery + cleanup, and prints one status line on stdout.
 
-Do not call `sessions_send` yourself. Do not call any tool other than `write`
-and `exec`. The wrapper handles everything else.
+Do not call `sessions_send` yourself. The deliver script handles verification, delivery, and cleanup — it calls the gateway RPC internally. Calling `sessions_send` directly bypasses the script contract and the security guards it enforces.
 
 **Reply** with the wrapper's stdout output, exactly, unmodified:
 - `Relayed` — message delivered successfully

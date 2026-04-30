@@ -800,10 +800,10 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       # 3) Register antenna agent if not already present
       #    The relay agent gets:
       #    - sandbox off: prevents per-command-hash approval prompts
-      #    - restrictive tools.deny: least-privilege (only exec + sessions_send needed)
+      #    - restrictive tools.deny: least-privilege (only exec needed)
       #    NOTE: Do NOT set tools.exec (security/ask) on the antenna agent.
       #    Explicit exec overrides cause silent relay failures where the hook session
-      #    acknowledges but sessions_send never executes, making messages invisible.
+      #    acknowledges but delivery never completes, making messages invisible.
       has_antenna=""
       has_antenna=$(jq '[.agents.list // [] | .[] | select(.id == "antenna")] | length' "$GATEWAY_CFG" 2>/dev/null || echo "0")
       if [[ "$has_antenna" -eq 0 ]]; then
@@ -851,7 +851,7 @@ if [[ -n "$GATEWAY_CFG" ]]; then
       fi
 
       # 4) Enable cross-agent session visibility
-      #    The relay agent needs sessions_send to deliver messages into other agents' sessions.
+      #    The deliver script's gateway RPC needs to deliver into other agents' sessions.
       #    Without this, OpenClaw blocks cross-agent session access.
       _current_vis=$(jq -r '.tools.sessions.visibility // empty' "$GATEWAY_CFG" 2>/dev/null || true)
       if [[ "$_current_vis" != "all" ]]; then

@@ -79,7 +79,7 @@ That's both steps. The CLI auto-fixes file permissions on first run (ClawHub doe
 
 Or clone directly:
 ```bash
-git clone https://github.com/ClawReefAntenna/antenna.git ~/clawd/skills/antenna
+git clone https://github.com/cshirley001/openclaw-skill-antenna.git ~/clawd/skills/antenna
 bash skills/antenna/bin/antenna.sh setup
 ```
 

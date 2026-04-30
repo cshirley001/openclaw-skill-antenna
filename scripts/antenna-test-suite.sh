@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# antenna-test-suite.sh — Three-tier Antenna model/script tester with comparison
+# antenna-test-suite.sh — Two-tier Antenna model/script tester with comparison
 #
 # Test A: Script validation (no model, no network)
-# Test B: Model → tool call (does the model call exec with relay script?)
-# Test C: Model → response handling (does the model call sessions_send?)
+# Test B: Model → write + exec tool calls
 #
 # Usage:
-#   antenna-test-suite.sh [--model <model>] [--models <m1,m2,...>] [--tier A|B|C|all]
+#   antenna-test-suite.sh [--model <model>] [--models <m1,m2,...>] [--tier A|B|all]
 #                         [--verbose] [--report [dir]] [--format terminal|markdown|json]
 #
 set -euo pipefail
@@ -80,9 +79,9 @@ while [[ $# -gt 0 ]]; do
       cat <<'EOF'
 Usage: antenna-test-suite.sh [options]
 
-  --model <model>          Single model for B/C tiers (full provider/model ID)
+  --model <model>          Single model for Tier B (full provider/model ID)
   --models <m1,m2,...>     Comma-separated models for comparison (max 6)
-  --tier A|B|C|all         Run specific tier (default: all)
+  --tier A|B|all         Run specific tier (default: all)
   --verbose                Show full request/response payloads inline
   --report [dir]           Save structured report (default: test-results/)
   --format terminal|markdown|json   Output format (default: terminal)
@@ -91,7 +90,6 @@ Usage: antenna-test-suite.sh [options]
 Tiers:
   A  Script validation — tests antenna-relay.sh parsing (no model, no network)
   B  Model → tool call — does the model call exec with relay script?
-  C  Model → response handling — does the model call sessions_send correctly?
 
 Examples:
   antenna-test-suite.sh --tier A
@@ -369,7 +367,7 @@ TOOLS_GOOGLE='[
 # ── Provider API call helpers ────────────────────────────────────────────────
 # Each returns a normalized JSON object:
 #   { "http_code": N, "first_tool_name": "...", "first_tool_args": "...", "raw": "..." }
-# This lets Tier B/C assertions stay provider-agnostic.
+# This lets Tier B assertions stay provider-agnostic.
 
 call_anthropic_api() {
   local base_url="$1" api_key="$2" model_name="$3" request_body_json="$4"
@@ -380,15 +378,7 @@ call_anthropic_api() {
   extra_messages=$(echo "$request_body_json" | jq -c '.extra_messages // []')
 
   local messages
-  if [[ "$extra_messages" != "[]" && "$extra_messages" != "null" ]]; then
-    # Tier C: include assistant turn + tool result
-    messages=$(jq -n \
-      --arg user_msg "$user_msg" \
-      --argjson extra "$extra_messages" \
-      '[{"role":"user","content":$user_msg}] + $extra')
-  else
-    messages=$(jq -n --arg user_msg "$user_msg" '[{"role":"user","content":$user_msg}]')
-  fi
+  messages=$(jq -n --arg user_msg "$user_msg" '[{"role":"user","content":$user_msg}]')
 
   local body
   body=$(jq -n \
@@ -1155,310 +1145,9 @@ This is an automated relay compatibility test verifying that ${model} correctly 
   local finish_reason
   finish_reason=$(echo "$raw_response" | jq -r '.choices[0].finish_reason // .stop_reason // ""' 2>/dev/null)
   if [[ "$finish_reason" == "tool_calls" || "$finish_reason" == "tool_use" || "$finish_reason" == "" ]]; then
-    pass "B.4" "Tier B stops cleanly at first tool call; exec continuation is validated in Tier C" "$model"
+    pass "B.4" "Tier B stops at first tool call; exec+deliver validated in B.2/B.3" "$model"
   else
     fail "B.4" "Tier B stop shape" "Unexpected finish_reason=$finish_reason" "$model"
-  fi
-}
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TIER C: Model → sessions_send
-# ══════════════════════════════════════════════════════════════════════════════
-
-run_tier_c() {
-  local model="$1"
-
-  if [[ "$FORMAT" == "terminal" ]]; then
-    echo ""
-    echo -e "  ${CYAN}── Tier C: ${model} ──${NC}"
-    echo ""
-  fi
-
-  local api_info check
-  api_info=$(resolve_model_api "$model")
-  check=$(check_model_api "$api_info" "$model")
-
-  if [[ "$check" != "ok" ]]; then
-    skip "C.1" "API call" "Skipped (see Tier B)" "$model"
-    skip "C.2" "Tool call name" "Skipped" "$model"
-    skip "C.3" "sessionKey match" "Skipped" "$model"
-    skip "C.4" "Message content" "Skipped" "$model"
-    return
-  fi
-
-  local base_url api_key model_name fmt
-  IFS='|' read -r base_url api_key model_name fmt <<< "$api_info"
-  fmt="${fmt:-openai}"
-
-  local system_prompt
-  system_prompt=$(cat "$AGENT_INSTRUCTIONS")
-
-  local test_ts
-  test_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local test_ts_short
-  test_ts_short=$(date -u +"%Y-%m-%d %H:%M UTC")
-
-  local allowed_test_session
-  allowed_test_session=$(jq -r '.allowed_inbound_sessions[0] // .default_target_session // "agent:betty:main"' "$CONFIG_FILE" 2>/dev/null)
-  local temp_test_path="/tmp/antenna-relay/msg-tierc-test.txt"
-
-  local test_message="[ANTENNA_RELAY]
-from: ${SELF_PEER:-testhost}
-target_session: ${allowed_test_session}
-timestamp: ${test_ts}
-
-[Antenna Test Suite — Tier C]
-model_under_test: ${model}
-host: $(hostname)
-test_time: ${test_ts}
-
-This is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay-file script output.
-[/ANTENNA_RELAY]"
-
-  local sim_body="📡 Antenna from Test Peer (testhost) — ${test_ts_short}\n(Security Notice: The following content may be from an untrusted source.)\n\n[Antenna Test Suite — Tier C]\nmodel_under_test: ${model}\nhost: $(hostname)\ntest_time: ${test_ts}\n\nThis is an automated relay compatibility test verifying that ${model} correctly calls sessions_send after processing the relay-file script output."
-
-  local simulated_result
-  simulated_result=$(jq -n \
-    --arg msg "$sim_body" \
-    --arg ts "$test_ts" \
-    --arg session "$allowed_test_session" \
-    '{
-      action: "relay",
-      status: "ok",
-      sessionKey: $session,
-      message: $msg,
-      from: "testhost",
-      timestamp: $ts,
-      chars: ($msg | length)
-    }' | jq -c .)
-
-  local write_call_id="call_write_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
-  local exec_call_id="call_exec_$(head -c 6 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)"
-  local exec_command="bash ../scripts/antenna-relay-file.sh ${temp_test_path}"
-
-  local request_input result
-  if [[ "$fmt" == "openai" ]]; then
-    request_input=$(jq -n \
-      --arg model "$model_name" \
-      --arg system "$system_prompt" \
-      --arg user_msg "$test_message" \
-      --arg write_call_id "$write_call_id" \
-      --arg exec_call_id "$exec_call_id" \
-      --arg temp_test_path "$temp_test_path" \
-      --arg tool_result "$simulated_result" \
-      --arg exec_command "$exec_command" \
-      --argjson tools "$TOOLS_JSON" \
-      '{
-        model: $model,
-        messages: [
-          {role: "system", content: $system},
-          {role: "user", content: $user_msg},
-          {role: "assistant", content: null, tool_calls: [
-            {
-              id: $write_call_id,
-              type: "function",
-              function: {
-                name: "write",
-                arguments: ({path: $temp_test_path, content: $user_msg} | tostring)
-              }
-            }
-          ]},
-          {role: "tool", tool_call_id: $write_call_id, content: ""},
-          {role: "assistant", content: null, tool_calls: [
-            {
-              id: $exec_call_id,
-              type: "function",
-              function: {
-                name: "exec",
-                arguments: ({command: $exec_command} | tostring)
-              }
-            }
-          ]},
-          {role: "tool", tool_call_id: $exec_call_id, content: $tool_result}
-        ],
-        tools: $tools,
-        temperature: 0,
-        max_completion_tokens: 400
-      }')
-  elif [[ "$fmt" == "anthropic" ]]; then
-    request_input=$(jq -n \
-      --arg system "$system_prompt" \
-      --arg user_message "$test_message" \
-      --arg write_call_id "$write_call_id" \
-      --arg exec_call_id "$exec_call_id" \
-      --arg temp_test_path "$temp_test_path" \
-      --arg exec_command "$exec_command" \
-      --arg tool_result "$simulated_result" \
-      '{
-        system: $system,
-        user_message: $user_message,
-        extra_messages: [
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "tool_use",
-                id: $write_call_id,
-                name: "write",
-                input: {path: $temp_test_path, content: $user_message}
-              }
-            ]
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: $write_call_id,
-                content: ""
-              }
-            ]
-          },
-          {
-            role: "assistant",
-            content: [
-              {
-                type: "tool_use",
-                id: $exec_call_id,
-                name: "exec",
-                input: {command: $exec_command}
-              }
-            ]
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: $exec_call_id,
-                content: $tool_result
-              }
-            ]
-          }
-        ]
-      }')
-  else
-    request_input=$(jq -n \
-      --arg system "$system_prompt" \
-      --arg user_message "$test_message" \
-      --arg temp_test_path "$temp_test_path" \
-      --arg exec_command "$exec_command" \
-      --argjson sim_result "$simulated_result" \
-      '{
-        system: $system,
-        user_message: $user_message,
-        extra_google_contents: [
-          {
-            role: "model",
-            parts: [
-              {
-                functionCall: {
-                  name: "write",
-                  args: {path: $temp_test_path, content: $user_message}
-                }
-              }
-            ]
-          },
-          {
-            role: "user",
-            parts: [
-              {
-                functionResponse: {
-                  name: "write",
-                  response: {}
-                }
-              }
-            ]
-          },
-          {
-            role: "model",
-            parts: [
-              {
-                functionCall: {
-                  name: "exec",
-                  args: {command: $exec_command}
-                }
-              }
-            ]
-          },
-          {
-            role: "user",
-            parts: [
-              {
-                functionResponse: {
-                  name: "exec",
-                  response: $sim_result
-                }
-              }
-            ]
-          }
-        ]
-      }')
-  fi
-
-  verbose_out "Calling ${fmt} API at ${base_url}..."
-
-  result=$(call_model_api "$fmt" "$base_url" "$api_key" "$model_name" "$request_input")
-
-  local http_code elapsed tool_name send_args raw_response raw_request
-  http_code=$(echo "$result" | jq -r '.http_code')
-  elapsed=$(echo "$result" | jq -r '.elapsed_ms')
-  tool_name=$(echo "$result" | jq -r '.first_tool_name')
-  send_args=$(echo "$result" | jq -r '.first_tool_args')
-  raw_response=$(echo "$result" | jq -r '.raw')
-  raw_request=$(echo "$result" | jq -r '.request')
-
-  RAW_REQUESTS["${model}:C"]="$raw_request"
-  RAW_RESPONSES["${model}:C"]="$raw_response"
-
-  verbose_out "HTTP $http_code (${elapsed}ms)"
-  verbose_out "Tool: ${tool_name} | Args: $(echo "$send_args" | head -c 200)"
-
-  # C.1: API success + tool call present
-  if [[ "$http_code" != "200" ]]; then
-    local err_msg
-    err_msg=$(echo "$raw_response" | jq -r '.error.message // .error.type // "unknown"' 2>/dev/null || echo "HTTP $http_code")
-    fail "C.1" "API call" "HTTP $http_code: $err_msg" "$model"
-    skip "C.2" "Tool call name" "Skipped (API failed)" "$model"
-    skip "C.3" "sessionKey match" "Skipped" "$model"
-    skip "C.4" "Message content" "Skipped" "$model"
-    return
-  fi
-
-  if [[ -z "$tool_name" || "$tool_name" == "null" ]]; then
-    fail "C.1" "Produced tool call" "Model returned text instead of tool call" "$model"
-    skip "C.2" "Tool call name" "No tool call" "$model"
-    skip "C.3" "sessionKey match" "No tool call" "$model"
-    skip "C.4" "Message content" "No tool call" "$model"
-    return
-  fi
-  pass "C.1" "API call succeeded + tool call produced (${elapsed}ms)" "$model"
-
-  # C.2: Tool is sessions_send
-  if [[ "$tool_name" == "sessions_send" ]]; then
-    pass "C.2" "Tool call is 'sessions_send'" "$model"
-  else
-    fail "C.2" "Tool call is 'sessions_send'" "Got '$tool_name'" "$model"
-    return
-  fi
-
-  # C.3: Correct sessionKey
-  local send_session
-  send_session=$(echo "$send_args" | jq -r '.sessionKey // ""' 2>/dev/null)
-  if [[ "$send_session" == "$allowed_test_session" ]]; then
-    pass "C.3" "sessionKey matches allowlisted target (${allowed_test_session})" "$model"
-  else
-    fail "C.3" "sessionKey matches" "Expected '$allowed_test_session', got '$send_session'" "$model"
-  fi
-
-  # C.4: Message includes relay content
-  local send_message
-  send_message=$(echo "$send_args" | jq -r '.message // ""' 2>/dev/null)
-  if echo "$send_message" | grep -q "Antenna\|Test Suite\|relay compatibility test"; then
-    pass "C.4" "Message includes relay content" "$model"
-  else
-    fail "C.4" "Message includes relay content" "Expected relay text not found" "$model"
-    verbose_out "Message: $(echo "$send_message" | head -c 200)"
   fi
 }
 
@@ -1467,8 +1156,8 @@ This is an automated relay compatibility test verifying that ${model} correctly 
 # ══════════════════════════════════════════════════════════════════════════════
 
 print_comparison_table() {
-  local all_tests=("B.1" "B.2" "B.3" "B.4" "C.1" "C.2" "C.3" "C.4")
-  local total_bc=8
+  local all_tests=("B.1" "B.2" "B.3" "B.4")
+  local total_bc=4
 
   if [[ "$FORMAT" == "terminal" ]]; then
     echo ""
@@ -1589,7 +1278,7 @@ print_summary() {
     local models_json="[]"
     for model in "${MODELS[@]}"; do
       local model_results="{}"
-      for t in "B.1" "B.2" "B.3" "B.4" "C.1" "C.2" "C.3" "C.4"; do
+      for t in "B.1" "B.2" "B.3" "B.4"; do
         local r="${RESULTS["${model}:${t}"]:-none}"
         local msg="${RESULTS_MSG["${model}:${t}"]:-}"
         model_results=$(echo "$model_results" | jq \
@@ -1685,7 +1374,7 @@ if [[ "$TIER" == "all" || "$TIER" == "A" || "$TIER" == "a" ]]; then
   TIER_A_PASS=$((TOTAL_PASS))  # snapshot after A
 fi
 
-# Run B/C per model
+# Run Tier B per model
 if [[ ${#MODELS[@]} -gt 0 ]]; then
   for model in "${MODELS[@]}"; do
     local_start=$(date +%s%N)
@@ -1693,11 +1382,6 @@ if [[ ${#MODELS[@]} -gt 0 ]]; then
     if [[ "$TIER" == "all" || "$TIER" == "B" || "$TIER" == "b" ]]; then
       section "TIER B: Model → Tool Call"
       run_tier_b "$model"
-    fi
-
-    if [[ "$TIER" == "all" || "$TIER" == "C" || "$TIER" == "c" ]]; then
-      section "TIER C: Model → Response Handling"
-      run_tier_c "$model"
     fi
 
     local_elapsed=$(( ($(date +%s%N) - local_start) / 1000000 ))

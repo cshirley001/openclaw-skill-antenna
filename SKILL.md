@@ -407,6 +407,7 @@ skills/antenna/
 ├── scripts/
 │   ├── antenna-send.sh
 │   ├── antenna-relay.sh
+│   ├── antenna-relay-deliver.sh         # v1.4+ — canonical single-call deliver wrapper
 │   ├── antenna-relay-file.sh           # internal file-based relay adapter
 │   ├── antenna-relay-exec.sh            # v1.1.6 — base64 wrapper (legacy fallback)
 │   ├── antenna-pair.sh                  # v1.1.9 — interactive peer pairing wizard
@@ -453,5 +454,5 @@ On each host:
 ## Support
 
 - 📧 **Email:** [help@clawreef.io](mailto:help@clawreef.io)
-- 🐛 **Issues:** [github.com/ClawReefAntenna/antenna/issues](https://github.com/ClawReefAntenna/antenna/issues)
+- 🐛 **Issues:** [github.com/cshirley001/openclaw-skill-antenna/issues](https://github.com/cshirley001/openclaw-skill-antenna/issues)
 - 🔒 **Security:** See [SECURITY.md](SECURITY.md)
