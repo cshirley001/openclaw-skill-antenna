@@ -45,14 +45,18 @@ for fn in himalaya_config_path himalaya_account_email himalaya_accounts_list sel
 done
 
 # T4: send_bundle_email hard-fails on unresolved email via die (no silent fallback).
-if awk '/^send_bundle_email\(\)/,/^}/' "$EXCHANGE" | grep -q 'die "Could not resolve email address for himalaya account'; then
+# Materialize the awk region before grep: under pipefail, grep -q can close
+# early and make awk report SIGPIPE when the function body grows.
+_bundle_send_region="$(awk '/^send_bundle_email\(\)/,/^}/' "$EXCHANGE")"
+if printf '%s\n' "$_bundle_send_region" | grep -F 'die "Could not resolve email address for himalaya account' >/dev/null; then
   pass "T4: send_bundle_email dies when email cannot be resolved"
 else
   fail "T4: send_bundle_email dies when email cannot be resolved"
 fi
 
 # T5: send_pubkey_email hard-fails on unresolved email via die (no silent fallback).
-if awk '/^send_pubkey_email\(\)/,/^}/' "$EXCHANGE" | grep -q 'die "Could not resolve email address for himalaya account'; then
+_pubkey_send_region="$(awk '/^send_pubkey_email\(\)/,/^}/' "$EXCHANGE")"
+if printf '%s\n' "$_pubkey_send_region" | grep -F 'die "Could not resolve email address for himalaya account' >/dev/null; then
   pass "T5: send_pubkey_email dies when email cannot be resolved"
 else
   fail "T5: send_pubkey_email dies when email cannot be resolved"

@@ -3,7 +3,7 @@
 #
 # Preferred encrypted flow:
 #   antenna peers exchange keygen [--force]
-#   antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email] [--email <addr> --send-email]
+#   antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] [--subject <text>] [--message <text>] [--cc-self] --send-email]
 #   antenna peers exchange initiate <peer-id> [options]
 #   antenna peers exchange import [file|-] [--yes] [--force-expired]
 #   antenna peers exchange reply <peer-id> [options]
@@ -55,7 +55,7 @@ antenna peers exchange — Antenna Layer A bootstrap exchange
 
 Encrypted flow (preferred):
   antenna peers exchange keygen [--force]
-  antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] --send-email]
+  antenna peers exchange pubkey [--bare] [--email <addr> [--account <name>] [--subject <text>] [--message <text>] [--cc-self] --send-email]
   antenna peers exchange initiate <peer-id> [options]
   antenna peers exchange import [file|-] [--yes] [--force-expired]
   antenna peers exchange reply <peer-id> [options]
@@ -64,10 +64,13 @@ Options for initiate / reply:
   --pubkey <age-recipient>      Recipient exchange public key
   --pubkey-file <path>          Read recipient exchange public key from file
   --email <addr>                Recipient email address (for optional direct send)
-  --account <name>              Himalaya account to use with --send-email
+  --account <name>              Mail account to use with --send-email
+  --subject <text>              Custom email subject for --send-email (<50 chars)
+  --message <text>              Short custom email message for --send-email (<100 chars)
+  --cc-self                     CC the resolved sender address for confirmation
   --output <path>               Output armored bundle path
   --print                       Print armored bundle after writing it
-  --send-email                  Send bundle inline by email (requires himalaya)
+  --send-email                  Send bundle by email (requires gog or himalaya)
   --notes <text>                Optional operator note stored in bundle metadata
   --yes                         Accept defaults / confirmations non-interactively
   --legacy                      Use the weaker raw-secret fallback instead
@@ -83,7 +86,7 @@ Legacy/manual compatibility:
 
 Notes:
 - Encrypted Layer A requires: age + age-keygen
-- Direct email sending is optional and requires: himalaya
+- Direct email sending is optional and requires: gog or himalaya
 - The encrypted bundle includes the sender's exchange public key
 - Import shows a preview and asks before applying allowlist changes
 EOF
@@ -92,6 +95,18 @@ EOF
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 require_cmd() { have_cmd "$1" || die "$1 not found"; }
 is_tty() { [[ -t 0 && -t 1 ]]; }
+
+# REF-1700: ensure linuxbrew age binaries are on PATH before any age availability
+# check. This handles cases where this script is called from a context that stripped
+# linuxbrew from PATH (e.g. certain cron/SSH environments, modified PATH in wrapper
+# scripts, or non-interactive sessions without linuxbrew inherited).
+_ensure_age_path() {
+  local brew_prefix="/home/linuxbrew/.linuxbrew"
+  if [[ -d "${brew_prefix}/bin" ]] && [[ ":$PATH:" != *":${brew_prefix}/bin:"* ]]; then
+    export PATH="${brew_prefix}/bin:$PATH"
+  fi
+}
+_ensure_age_path
 
 prompt() {
   local __var_name="$1" prompt_text="$2" default="${3:-}"
@@ -251,6 +266,29 @@ validate_runtime_secret() {
 validate_age_pubkey() {
   local key="$1"
   [[ "$key" =~ ^age1[0-9a-z]+$ ]] || die "Invalid age public key: $key"
+}
+
+validate_email_subject() {
+  local subject="$1"
+  if (( ${#subject} >= 50 )); then
+    die "Email subject must be fewer than 50 characters (got ${#subject})."
+  fi
+}
+
+validate_email_message() {
+  local message="$1"
+  if (( ${#message} >= 100 )); then
+    die "Email message must be fewer than 100 characters (got ${#message})."
+  fi
+}
+
+prepend_optional_message() {
+  local custom_message="$1" body_text="$2"
+  if [[ -n "$custom_message" ]]; then
+    printf '%s\n\n%s\n' "$custom_message" "$body_text"
+  else
+    printf '%s\n' "$body_text"
+  fi
 }
 
 self_identity_secret_ref() {
@@ -555,16 +593,18 @@ confirm_from_account() {
 }
 
 send_bundle_email() {
-  local email_to="$1" bundle_file="$2" peer_id="$3" account="${4:-}"
+  local email_to="$1" bundle_file="$2" peer_id="$3" account="${4:-}" custom_subject="${5:-}" custom_message="${6:-}" cc_self="${7:-false}"
   [[ -f "$bundle_file" ]] || die "Bundle file not found: $bundle_file"
 
   local sid subject bundle_basename
   sid="$(self_id)"
-  subject="Antenna bootstrap bundle from ${sid} for ${peer_id}"
+  subject="${custom_subject:-Antenna bootstrap bundle from ${sid} for ${peer_id}}"
+  [[ -z "$custom_subject" ]] || validate_email_subject "$subject"
+  validate_email_message "$custom_message"
   bundle_basename="$(basename "$bundle_file")"
 
-  local body_text
-  body_text="Encrypted Antenna Layer A bootstrap bundle from ${sid}.
+  local body_text default_body_text
+  default_body_text="Encrypted Antenna Layer A bootstrap bundle from ${sid}.
 
 To import it:
 1. Save the attached .age.txt file
@@ -573,6 +613,7 @@ To import it:
 
 Important: Import the attached FILE directly — do not copy-paste the
 bundle text, as email formatting may corrupt the base64 encoding."
+  body_text="$(prepend_optional_message "$custom_message" "$default_body_text")"
 
   # Method 1: gog (Gmail API — handles attachments natively)
   if have_cmd gog; then
@@ -581,11 +622,23 @@ bundle text, as email formatting may corrupt the base64 encoding."
     if [[ -n "$gog_account" ]] && ! [[ "$gog_account" == *@* ]]; then
       gog_account=""  # let gog use its default
     fi
-    local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
-    [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
-    if gog "${gog_args[@]}" >/dev/null 2>&1; then
-      ok "Sent encrypted bundle email to $email_to via gog (Gmail API)"
-      return 0
+    local gog_cc=""
+    if [[ "$cc_self" == "true" ]]; then
+      if [[ -n "$gog_account" && "$gog_account" == *@* ]]; then
+        gog_cc="$gog_account"
+      else
+        warn "Cannot resolve gog sender address for CC-to-self; trying himalaya fallback..."
+        gog_account="__skip_gog_for_cc_self__"
+      fi
+    fi
+    if [[ "$gog_account" != "__skip_gog_for_cc_self__" ]]; then
+      local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
+      [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$bundle_file" --force)
+      [[ -n "$gog_cc" ]] && gog_args+=(--cc "$gog_cc")
+      if gog "${gog_args[@]}" >/dev/null 2>&1; then
+        ok "Sent encrypted bundle email to $email_to via gog (Gmail API)"
+        return 0
+      fi
     fi
     warn "gog send failed; trying himalaya fallback..."
   fi
@@ -613,9 +666,13 @@ bundle text, as email formatting may corrupt the base64 encoding."
     bundle_b64=$(base64 "$bundle_file")
 
     raw_file=$(mktemp)
-    cat > "$raw_file" <<EOF
-From: ${sid} <${from_addr}>
-To: ${email_to}
+    {
+      printf 'From: %s <%s>\n' "$sid" "$from_addr"
+      printf 'To: %s\n' "$email_to"
+      if [[ "$cc_self" == "true" ]]; then
+        printf 'Cc: %s\n' "$from_addr"
+      fi
+      cat <<EOF
 Subject: ${subject}
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="ANTENNABUNDLE"
@@ -634,6 +691,7 @@ ${bundle_b64}
 
 --ANTENNABUNDLE--
 EOF
+    } > "$raw_file"
     himalaya message send -a "$account" < "$raw_file" >/dev/null
     rm -f "$raw_file"
     ok "Sent encrypted bundle email to $email_to via himalaya ($from_addr)"
@@ -819,7 +877,7 @@ encrypt_bundle_from_stdin() {
 }
 
 run_bundle_command() {
-  local mode="$1" peer_id="$2" pubkey_arg="$3" pubkey_file_arg="$4" email="$5" account="$6" output_path="$7" print_bundle="$8" send_email="$9" notes="${10}" assume_yes="${11}" legacy_mode="${12}"
+  local mode="$1" peer_id="$2" pubkey_arg="$3" pubkey_file_arg="$4" email="$5" account="$6" output_path="$7" print_bundle="$8" send_email="$9" notes="${10}" assume_yes="${11}" legacy_mode="${12}" email_subject="${13:-}" email_message="${14:-}" cc_self="${15:-false}"
   local recipient_pubkey self_peer output_file existing_pubkey display_name
 
   self_peer="$(self_id)"
@@ -872,7 +930,7 @@ run_bundle_command() {
 
   if [[ "$send_email" == "true" ]]; then
     [[ -n "$email" ]] || die "--send-email requires --email <addr>"
-    send_bundle_email "$email" "$output_file" "$peer_id" "$account"
+    send_bundle_email "$email" "$output_file" "$peer_id" "$account" "$email_subject" "$email_message" "$cc_self"
     log_entry "OUTBOUND-BOOTSTRAP | mode:${mode} | to:${peer_id} | status:emailed | email:${email}"
   elif [[ -n "$email" ]]; then
     info "Email not sent automatically. Re-run with --send-email, or send the bundle file manually to: $email"
@@ -899,7 +957,7 @@ run_bundle_command() {
             fi
           fi
         fi
-        send_bundle_email "$interactive_email" "$output_file" "$peer_id" "$interactive_account"
+        send_bundle_email "$interactive_email" "$output_file" "$peer_id" "$interactive_account" "$email_subject" "$email_message" "$cc_self"
         log_entry "OUTBOUND-BOOTSTRAP | mode:${mode} | to:${peer_id} | status:emailed | email:${interactive_email}"
       fi
     fi
@@ -1126,14 +1184,17 @@ cmd_keygen() {
 }
 
 send_pubkey_email() {
-  local email_to="$1" account="${2:-}"
+  local email_to="$1" account="${2:-}" custom_subject="${3:-}" custom_message="${4:-}" cc_self="${5:-false}"
   local sid pubkey subject
 
   sid="$(self_id)"
   pubkey="$(current_exchange_pubkey)"
-  subject="Antenna exchange public key from ${sid}"
+  subject="${custom_subject:-Antenna exchange public key from ${sid}}"
+  [[ -z "$custom_subject" ]] || validate_email_subject "$subject"
+  validate_email_message "$custom_message"
 
-  local body_text="Antenna exchange public key from ${sid}:
+  local default_body_text body_text
+  default_body_text="Antenna exchange public key from ${sid}:
 
 ${pubkey}
 
@@ -1142,6 +1203,7 @@ To use this key when creating a bootstrap bundle for ${sid}:
 
 Or save the attached .agepub file and use:
   antenna peers exchange initiate ${sid} --pubkey-file <saved-file>"
+  body_text="$(prepend_optional_message "$custom_message" "$default_body_text")"
 
   local pubkey_file
   pubkey_file=$(mktemp --suffix="-${sid}.agepub")
@@ -1151,12 +1213,24 @@ Or save the attached .agepub file and use:
   if have_cmd gog; then
     local gog_account="${account:-}"
     [[ -n "$gog_account" ]] && ! [[ "$gog_account" == *@* ]] && gog_account=""
-    local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
-    [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
-    if gog "${gog_args[@]}" >/dev/null 2>&1; then
-      rm -f "$pubkey_file"
-      ok "Sent exchange public key to $email_to via gog (Gmail API)"
-      return 0
+    local gog_cc=""
+    if [[ "$cc_self" == "true" ]]; then
+      if [[ -n "$gog_account" && "$gog_account" == *@* ]]; then
+        gog_cc="$gog_account"
+      else
+        warn "Cannot resolve gog sender address for CC-to-self; trying himalaya fallback..."
+        gog_account="__skip_gog_for_cc_self__"
+      fi
+    fi
+    if [[ "$gog_account" != "__skip_gog_for_cc_self__" ]]; then
+      local gog_args=(gmail send --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
+      [[ -n "$gog_account" ]] && gog_args=(gmail send --account "$gog_account" --to "$email_to" --subject "$subject" --body "$body_text" --attach "$pubkey_file" --force)
+      [[ -n "$gog_cc" ]] && gog_args+=(--cc "$gog_cc")
+      if gog "${gog_args[@]}" >/dev/null 2>&1; then
+        rm -f "$pubkey_file"
+        ok "Sent exchange public key to $email_to via gog (Gmail API)"
+        return 0
+      fi
     fi
     warn "gog send failed; trying himalaya fallback..."
   fi
@@ -1180,9 +1254,13 @@ Or save the attached .agepub file and use:
     fi
 
     raw_file=$(mktemp)
-    cat > "$raw_file" <<EOF
-From: ${sid} <${from_addr}>
-To: ${email_to}
+    {
+      printf 'From: %s <%s>\n' "$sid" "$from_addr"
+      printf 'To: %s\n' "$email_to"
+      if [[ "$cc_self" == "true" ]]; then
+        printf 'Cc: %s\n' "$from_addr"
+      fi
+      cat <<EOF
 Subject: ${subject}
 MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary="ANTENNAPUBKEY"
@@ -1200,6 +1278,7 @@ ${pubkey}
 
 --ANTENNAPUBKEY--
 EOF
+    } > "$raw_file"
     himalaya message send -a "$account" < "$raw_file" >/dev/null
     rm -f "$raw_file" "$pubkey_file"
     ok "Sent exchange public key to $email_to via himalaya ($from_addr)"
@@ -1211,12 +1290,15 @@ EOF
 }
 
 cmd_pubkey() {
-  local bare=false email="" account="" send_email=false
+  local bare=false email="" account="" send_email=false email_subject="" email_message="" cc_self=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --bare) bare=true; shift ;;
       --email) email="$2"; shift 2 ;;
       --account) account="$2"; shift 2 ;;
+      --subject) email_subject="$2"; shift 2 ;;
+      --message) email_message="$2"; shift 2 ;;
+      --cc-self) cc_self=true; shift ;;
       --send-email) send_email=true; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option for pubkey: $1" ;;
@@ -1236,7 +1318,7 @@ cmd_pubkey() {
     # Send by email if requested
     if [[ "$send_email" == "true" ]]; then
       [[ -n "$email" ]] || die "--send-email requires --email <addr>"
-      send_pubkey_email "$email" "$account"
+      send_pubkey_email "$email" "$account" "$email_subject" "$email_message" "$cc_self"
     elif [[ "$send_email" != "true" ]] && is_tty && (have_cmd gog || have_cmd himalaya); then
       # Interactive: offer to email
       echo
@@ -1257,7 +1339,7 @@ cmd_pubkey() {
               fi
             fi
           fi
-          send_pubkey_email "$interactive_email" "$interactive_account"
+          send_pubkey_email "$interactive_email" "$interactive_account" "$email_subject" "$email_message" "$cc_self"
         fi
       fi
     fi
@@ -1273,6 +1355,7 @@ cmd_initiate_or_reply() {
 
   local pubkey_arg="" pubkey_file_arg="" email="" account="" output_path=""
   local print_bundle=false send_email=false notes="" assume_yes=false legacy_mode=false
+  local email_subject="" email_message="" cc_self=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1280,6 +1363,9 @@ cmd_initiate_or_reply() {
       --pubkey-file) pubkey_file_arg="$2"; shift 2 ;;
       --email) email="$2"; shift 2 ;;
       --account) account="$2"; shift 2 ;;
+      --subject) email_subject="$2"; shift 2 ;;
+      --message) email_message="$2"; shift 2 ;;
+      --cc-self) cc_self=true; shift ;;
       --output) output_path="$2"; shift 2 ;;
       --print) print_bundle=true; shift ;;
       --send-email) send_email=true; shift ;;
@@ -1291,7 +1377,7 @@ cmd_initiate_or_reply() {
     esac
   done
 
-  run_bundle_command "$mode" "$peer_id" "$pubkey_arg" "$pubkey_file_arg" "$email" "$account" "$output_path" "$print_bundle" "$send_email" "$notes" "$assume_yes" "$legacy_mode"
+  run_bundle_command "$mode" "$peer_id" "$pubkey_arg" "$pubkey_file_arg" "$email" "$account" "$output_path" "$print_bundle" "$send_email" "$notes" "$assume_yes" "$legacy_mode" "$email_subject" "$email_message" "$cc_self"
 }
 
 cmd_import() {
