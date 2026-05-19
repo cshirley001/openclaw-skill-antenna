@@ -91,7 +91,7 @@ After setup, `antenna` is on your PATH — all future commands are just `antenna
 antenna pair
 ```
 
-An interactive wizard walks you through generating an age keypair, sharing your public key, building an encrypted bootstrap bundle, importing the reply, testing connectivity, and sending your first message. Every step has **Next / Skip / Quit** — go at your own pace.
+An interactive wizard asks how you'd like to exchange credentials — Email, ClawReef, or Manual — then walks you through the selected transport, testing connectivity and sending your first message. Every step has **Next / Skip / Quit** — go at your own pace.
 
 Or just ask your agent: *"Help me pair with a new host."*
 

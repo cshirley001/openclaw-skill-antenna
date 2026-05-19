@@ -10,6 +10,21 @@ For the complete version history prior to `1.3.0`, see:
 
 ## [Unreleased]
 
+### Added
+- **Transport-first pairing wizard.** Pairing now opens with a transport-selection menu
+  (Email / ClawReef / Manual) before proceeding. Email path sends an encrypted
+  bundle invite when the peer's pubkey is already known, and automatically requests
+  the peer's pubkey otherwise. ClawReef and Manual remain as alternatives. Preview-
+  before-send and optional CC-to-self on the email path. New `--subject`, `--message`,
+  and `--cc-self` flags on `antenna-exchange.sh`.
+
+### Fixed
+- **`antenna pair` returns to transport menu when email tooling is absent.** Previously,
+  selecting the Email transport on a host without `gog` or `himalaya` installed would
+  abort the wizard under `set -e`, preventing the operator from falling back to Manual
+  or ClawReef in the same run. Now returns gracefully to the transport-selection menu.
+
+
 ## [1.5.1] — 2026-04-28
 
 ### Fixed

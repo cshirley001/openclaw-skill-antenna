@@ -46,3 +46,4 @@ antenna-inbox.json.bak.*
 
 # Retired secrets (moved out of secrets/ during cleanup, never shipped)
 secrets.retired/
+agent/memory

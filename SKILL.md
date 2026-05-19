@@ -182,7 +182,7 @@ antenna pair                          # Full interactive wizard
 antenna pair --peer-id myserver       # Pre-fill peer ID
 ```
 
-The wizard walks through keypair generation, public key sharing, optional ClawReef invite, bundle creation, optional bundle email send when mail tooling is available, exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
+The wizard opens with a transport-selection menu (Email / ClawReef / Manual). Email sends an encrypted bundle invite when the peer's pubkey is known, or requests it otherwise. ClawReef and Manual are alternatives. Each transport path covers keypair, bundle exchange, connectivity test, and first message — with Next/Skip/Quit at each step. Also auto-offered at the end of `antenna setup`.
 
 ### Peer onboarding / bootstrap exchange (manual)
 

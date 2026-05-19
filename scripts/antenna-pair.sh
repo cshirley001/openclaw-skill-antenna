@@ -452,7 +452,7 @@ run_email_pairing() {
   header "Email Pairing"
 
   if ! ensure_email_tool; then
-    return 1
+    return 2
   fi
 
   prompt_value recipient_email "What email should I send to?" ""
@@ -659,8 +659,15 @@ run_transport_menu() {
     prompt_value choice "Choice" "1"
     case "${choice,,}" in
       1|email|e)
-        run_email_pairing
-        return 0
+        if run_email_pairing; then
+          return 0
+        else
+          local email_status=$?
+          if [[ $email_status -eq 2 ]]; then
+            continue
+          fi
+          return "$email_status"
+        fi
         ;;
       2|clawreef|clawreef.io|c)
         run_clawreef_pairing

@@ -67,20 +67,18 @@ When it's done, you'll see:
 antenna pair
 ```
 
-The pairing wizard walks you through connecting to another host in eight steps:
+The pairing wizard opens with a transport-selection menu — choose how you'd like to exchange credentials:
 
-1. Generate your exchange keypair
-2. Share your public key (safe to share openly - it's a lock, not a key)
-3. **Send a ClawReef invite** *(optional)* - find a peer at [clawreef.io](https://clawreef.io) and send an invite through the registry instead of exchanging bundles manually
-4. Build an encrypted bootstrap bundle for your peer
-5. Wait for their reply (good time for coffee ☕)
-6. Import their reply bundle
-7. Test the connection
-8. Send your first message
+| Transport | When to use it | What happens |
+|---|---|---|
+| **Email** | Peer is reachable by email; you'd like Antenna to send the encrypted bundle for you | If peer's pubkey is already known, sends the bundle invite directly. Otherwise requests the peer's pubkey first. Preview-before-send and CC-to-self optional. |
+| **ClawReef** | Your peer is registered on [clawreef.io](https://clawreef.io) | Sends an invite through the registry; peer completes pairing via ClawReef delivery. |
+| **Manual** | You prefer to move the bundle file yourself, or email isn't convenient | Export the bundle to a file and move it by whatever channel you trust (Signal, USB stick, SCP…). |
 
-For the full pairing walkthrough — all eight steps, including the manual path — see [§Pairing Guide](#pairing-guide--connecting-to-a-peer) below.
+Each transport covers keypair generation, exchange, connectivity test, and your first message. Every step has **Next / Skip / Quit** — go at your own pace.
 
-> **Two paths:** Steps 3 (ClawReef) and 4-6 (direct exchange) are alternatives. Use whichever fits - ClawReef for discovery, direct exchange for known contacts. Skip what you don't need.
+
+For the full pairing walkthrough, see [§Pairing Guide](#pairing-guide--connecting-to-a-peer) below.
 
 ### 3. Send Your First Message
 
@@ -194,25 +192,18 @@ Then it offers to launch the pairing wizard.
 antenna pair
 ```
 
-Seven steps. Each has Next / Skip / Quit.
+The pairing wizard opens with a transport menu. Choose how you'd like to exchange credentials:
 
-**Step 1 - Generate your exchange keypair.** Creates an `age` keypair for encrypted bootstrap exchange. If you already have one, it'll tell you.
+| Transport | When to use it | What happens |
+|---|---|---|
+| **Email** | Your peer is reachable by email | If the peer's pubkey is already known, Antenna emails them an encrypted bundle invite. Otherwise it emails a pubkey request and waits for their reply. Preview-before-send and CC-to-self are offered. |
+| **ClawReef** | Your peer is registered on [clawreef.io](https://clawreef.io) | Antenna sends an invite through the registry; your peer completes pairing via ClawReef delivery. |
+| **Manual** | You prefer to move the bundle file yourself | Export the bundle to a file and move it by whatever channel you trust — Signal, USB stick, SCP. |
 
-**Step 2 - Share your public key.** Displays your public key. Send it to your peer however you like - chat, email, carrier pigeon. It's safe to share openly.
 
-**Step 3 - Build a bootstrap bundle.** Enter your peer's ID and their public key. Antenna creates an encrypted bundle file containing your endpoint, tokens, secrets, and metadata. Send the file to your peer (email attachment is recommended - don't paste inline, email clients love to mangle encoded text).
+Each path covers keypair generation, credential exchange, connectivity test, and your first message. Every step has **Next / Skip / Quit** — go at your own pace.
 
-**Step 4 - Wait for their reply.** Ball's in their court. They import your bundle, create a reply bundle, and send it back. This is a good time to grab coffee. ☕
 
-**Step 5 - Import their bundle.** Point the wizard at the reply bundle file. Antenna decrypts it, shows you a preview, and asks before making any changes.
-
-**Step 6 - Test the connection.** Pings your peer's endpoint to verify everything's wired up correctly.
-
-**Step 7 - Send your first message! 🦞** Type something (or accept the default). Releasing the lobster...
-
-When you're done:
-
-```
 🦞 You're Claw-nected!
 
 Welcome to the reef. Here's your cheat sheet:
@@ -221,7 +212,7 @@ Welcome to the reef. Here's your cheat sheet:
   View log:           antenna log --tail 20
 
 Happy messaging! The ocean just got smaller. 🦞 📡
-```
+
 
 ### The Manual Way
 

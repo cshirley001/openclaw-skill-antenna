@@ -137,6 +137,24 @@ else
   fail "T9: email arg builder succeeds when CC-self is off"
 fi
 
+# T10: selecting Email without gog/himalaya should return to the transport menu
+# instead of aborting the whole wizard under set -e. Constrain PATH so neither
+# mail tool can be found, then choose Email followed by Quit from the menu.
+if _no_tool_output="$(env PATH=/usr/bin:/bin bash "$PAIR" <<'EOF'
+1
+4
+EOF
+)"; then
+  menu_count="$(printf '%s\n' "$_no_tool_output" | grep -c 'How would you like to pair?' || true)"
+  if [[ "$menu_count" -ge 2 ]] && printf '%s\n' "$_no_tool_output" | grep -F 'Use ClawReef or Manual pairing for now' >/dev/null; then
+    pass "T10: Email without mail tools returns to the transport menu"
+  else
+    fail "T10: Email without mail tools returns to the transport menu" "menu_count=$menu_count"
+  fi
+else
+  fail "T10: Email without mail tools returns to the transport menu" "wizard exited non-zero"
+fi
+
 echo ""
 printf 'Result: \033[32m%s passed\033[0m, \033[31m%s failed\033[0m\n' "$PASS" "$FAIL"
 
